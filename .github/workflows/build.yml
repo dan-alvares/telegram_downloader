@@ -36,12 +36,12 @@ jobs:
             --include-package=toml `
             --include-package=tqdm `
             --include-package=typer `
-            --output-filename=tcli.exe `
+            --output-filename=telegram_video_downloader.exe `
             cli.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: tcli-windows
-          path: tcli.exe
+          path: telegram_video_downloader.exe
           retention-days: 7

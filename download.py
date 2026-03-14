@@ -3,19 +3,25 @@ import asyncio
 from telethon import TelegramClient
 from telethon.tl.types import InputMessagesFilterVideo
 import typer
-# from util import converter_videos
 from config import load_config
 from tqdm.asyncio import tqdm
 
 config = load_config()
 
-async def baixar_tudo(target: str):
+async def baixar_limitado(target: str, quantidade: int | None = None):
     async with TelegramClient(config['session_name'], config['api_id'], config['api_hash']) as client:
         try:
             canal_id = int(target.split('/c/')[1].split('/')[0])
             canal = int(f'-100{canal_id}')  # pyright: ignore[reportAssignmentType]
 
-            entity = await client.get_entity(canal)
+            await client.get_dialogs()
+
+            try:
+                entity = await client.get_entity(canal)
+            except ValueError:
+                canal_id = int(target.split('/c/')[1].split('/')[0])
+                canal = int(f'-100{canal_id}')
+                entity = await client.get_entity(canal)
 
             base_dir = Path(config['download_dir'])
             pasta_dos_videos = base_dir / entity.title
@@ -32,46 +38,61 @@ async def baixar_tudo(target: str):
         )  # pyright: ignore[reportUnknownMemberType]
 
         total_videos = result.total
+        limite = quantidade if quantidade is not None else total_videos
 
-        messages = client.iter_messages(entity)
+        print(f"Total de vídeos no canal: {total_videos}. Baixando: {limite}.")
 
-        contador = total_videos
+        messages = client.iter_messages(entity, filter=InputMessagesFilterVideo, limit=limite)
 
-        async for message in tqdm(
-            messages,
-            total=total_videos,
-            desc="Baixando vídeos",
-            unit="video"
-        ):
-            if not message.video:
-                continue
+        semaphore = asyncio.Semaphore(4)
+        contador = total_videos  # corrigido: era limite
+        tasks = []
 
-            filename = pasta_dos_videos / f"{contador}.mp4"
+        pbar = tqdm(total=limite, desc="Baixando vídeos", unit="video")
 
-            if filename.exists():
-                contador -= 1
-                continue
+        async def baixar_video(message, numero):
+            async with semaphore:
+                filename = pasta_dos_videos / f"{numero}.mp4"
 
-            await client.download_media(
-                message.video,
-                file=filename
+                if filename.exists():
+                    pbar.update(1)
+                    return
+
+                await client.download_media(
+                    message.video,
+                    file=filename
+                )
+
+                pbar.update(1)
+                await asyncio.sleep(0.5)
+
+        async for message in messages:
+            tasks.append(
+                asyncio.create_task(
+                    baixar_video(message, contador)
+                )
             )
-
             contador -= 1
 
-            await asyncio.sleep(1)  # evita FloodWait
+        await asyncio.gather(*tasks)
+        pbar.close()
+
+        print("Downloads concluídos.")
 
 async def baixar_paralelo(target: str):
-
     async with TelegramClient(config['session_name'], config['api_id'], config['api_hash']) as client:
-
         try:
             canal_id = int(target.split('/c/')[1].split('/')[0])
             canal = int(f'-100{canal_id}')  # pyright: ignore[reportAssignmentType]
 
             await client.get_dialogs() 
 
-            entity = await client.get_entity(canal)
+            try:
+                entity = await client.get_entity(canal)
+            except ValueError:
+                canal_id = int(target.split('/c/')[1].split('/')[0])
+                canal = int(f'-100{canal_id}')  # https://t.me/c/XXXXXXXXX
+                entity = await client.get_entity(canal)
 
             base_dir = Path(config['download_dir'])
             pasta_dos_videos = base_dir / entity.title
@@ -129,16 +150,15 @@ async def baixar_paralelo(target: str):
         await asyncio.gather(*tasks)
         pbar.close()
 
-        print("Downloads concluídos. Iniciando compressão com ffmpeg...")
-
-        # await converter_videos(pasta_dos_videos)
+        print("Downloads concluídos.")
 
 app = typer.Typer(help="Download de vídeos do Telegram")
 
 @app.command()
-def tudo():
+def apenas():
     link = typer.prompt('Informe o link do canal ou grupo para vaixar todos os vídeos.')
-    asyncio.run(baixar_tudo(link))
+    quantidade = int(typer.prompt('Quantos vídeos deseja baixar?'))
+    asyncio.run(baixar_limitado(link, quantidade))
 
 @app.command()
 def paralelo():
