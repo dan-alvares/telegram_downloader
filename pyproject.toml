@@ -8,7 +8,6 @@ dependencies = [
     "asyncio>=4.0.0",
     "python-dotenv>=1.2.2",
     "telethon>=1.42.0",
-    "tqdm>=4.67.3",
     "typer>=0.24.1",
 ]
 

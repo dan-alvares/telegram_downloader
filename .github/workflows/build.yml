@@ -29,18 +29,19 @@ jobs:
       - name: Build with Nuitka
         run: |
           uv run python -m nuitka `
-            --onefile `
+            --standalone `
             --assume-yes-for-downloads `
             --include-package=telethon `
             --include-package=dotenv `
             --include-package=tqdm `
             --include-package=typer `
-            --output-filename=telegram_video_downloader.exe `
+            --output-filename=telegram-downloader.exe `
+            --output-dir=dist `
             cli.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: tcli-windows
-          path: telegram_video_downloader.exe
+          path: dist/
           retention-days: 7
