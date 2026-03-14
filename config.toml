@@ -1,0 +1,3 @@
+[telegram]
+session_name = "telegram_session"
+download_dir = "downloads"
