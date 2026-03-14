@@ -1,5 +1,5 @@
 [project]
-name = "Telegram Video Downloader"
+name = "telegram-video-downloader"
 version = "0.1.0"
 description = "CLI para facilitar o download de vídeos em grupos/canais do Telegram"
 readme = "README.md"
