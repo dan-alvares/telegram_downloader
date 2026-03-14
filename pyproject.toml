@@ -1,7 +1,7 @@
 [project]
-name = "tcli"
+name = "Telegram Video Downloader"
 version = "0.1.0"
-description = "Add your description here"
+description = "CLI para facilitar o download de vídeos em grupos/canais do Telegram"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
