@@ -33,7 +33,6 @@ jobs:
             --assume-yes-for-downloads `
             --include-package=telethon `
             --include-package=dotenv `
-            --include-package=toml `
             --include-package=tqdm `
             --include-package=typer `
             --output-filename=telegram_video_downloader.exe `
