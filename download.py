@@ -1,6 +1,9 @@
+from fileinput import filename
 from pathlib import Path
 import asyncio
+import time
 from telethon import TelegramClient
+from telethon.errors.rpcerrorlist import FloodWaitError
 from telethon.tl.types import InputMessagesFilterVideo
 from telethon.errors import SessionPasswordNeededError
 import typer
@@ -82,7 +85,41 @@ async def baixar_limitado(target: str, quantidade: int | None = None):
                 return
 
             print(f"Baixando: {filename.name}")
-            await client.download_media(message.video, file=filename)
+
+            inicio = time.time()
+            bytes_anteriores = 0
+            ultimo_tempo = inicio
+
+            def progresso(bytes_baixados, total_bytes):
+                nonlocal bytes_anteriores, ultimo_tempo
+
+                agora = time.time()
+                intervalo = agora - ultimo_tempo
+
+                if intervalo >= 1.0:
+                    delta_bytes = bytes_baixados - bytes_anteriores
+                    velocidade = delta_bytes / intervalo
+
+                    if velocidade >= 1_000_000:
+                        vel_str = f"{velocidade / 1_000_000:.1f} MB/s"
+                    elif velocidade >= 1_000:
+                        vel_str = f"{velocidade / 1_000:.1f} KB/s"
+                    else:
+                        vel_str = f"{velocidade:.0f} B/s"
+
+                    porcentagem = (bytes_baixados / total_bytes * 100) if total_bytes else 0
+                    print(f"[{filename.name}] {porcentagem:.1f}% — {vel_str}")
+
+                    bytes_anteriores = bytes_baixados
+                    ultimo_tempo = agora
+
+            try:
+                await client.download_media(message.video, file=filename, progress_callback=progresso)
+            except FloodWaitError as e:
+                print(f"Limite de download atingido. Aguardando {e.seconds} segundos...")
+                await asyncio.sleep(e.seconds)
+                return
+
             print(f"Concluído: {filename.name}")
             await asyncio.sleep(0.5)
 
@@ -92,7 +129,6 @@ async def baixar_limitado(target: str, quantidade: int | None = None):
 
     await asyncio.gather(*tasks)
     print("Downloads concluídos.")
-
 
 async def baixar_paralelo(target: str):
     client = TelegramClient(config['session_name'], config['api_id'], config['api_hash'])
@@ -143,7 +179,41 @@ async def baixar_paralelo(target: str):
                 return
 
             print(f"Baixando: {filename.name}")
-            await client.download_media(message.video, file=filename)
+
+            inicio = time.time()
+            bytes_anteriores = 0
+            ultimo_tempo = inicio
+
+            def progresso(bytes_baixados, total_bytes):
+                nonlocal bytes_anteriores, ultimo_tempo
+
+                agora = time.time()
+                intervalo = agora - ultimo_tempo
+
+                if intervalo >= 1.0:
+                    delta_bytes = bytes_baixados - bytes_anteriores
+                    velocidade = delta_bytes / intervalo
+
+                    if velocidade >= 1_000_000:
+                        vel_str = f"{velocidade / 1_000_000:.1f} MB/s"
+                    elif velocidade >= 1_000:
+                        vel_str = f"{velocidade / 1_000:.1f} KB/s"
+                    else:
+                        vel_str = f"{velocidade:.0f} B/s"
+
+                    porcentagem = (bytes_baixados / total_bytes * 100) if total_bytes else 0
+                    print(f"[{filename.name}] {porcentagem:.1f}% — {vel_str}")
+
+                    bytes_anteriores = bytes_baixados
+                    ultimo_tempo = agora
+
+            try:
+                await client.download_media(message.video, file=filename, progress_callback=progresso)
+            except FloodWaitError as e:
+                print(f"Flood wait: aguardando {e.seconds} segundos...")
+                await asyncio.sleep(e.seconds)
+                return
+
             print(f"Concluído: {filename.name}")
             await asyncio.sleep(0.5)
 
