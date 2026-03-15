@@ -16,7 +16,7 @@ async def autenticar(client: TelegramClient):
         
         # Abre o link no navegador
         webbrowser.open(qr_login.url)
-        print("Uma página foi aberta no navegador com o QR Code.")
+        print("Uma página foi aberta no navegador.")
         print("Abra o Telegram no celular → Configurações → Dispositivos → Conectar dispositivo")
         print("Escaneie o QR Code exibido no navegador.")
         

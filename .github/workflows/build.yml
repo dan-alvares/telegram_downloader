@@ -32,6 +32,7 @@ jobs:
             --standalone `
             --assume-yes-for-downloads `
             --include-package=telethon `
+            --include-package=webbrowser `
             --include-package=dotenv `
             --include-package=typer `
             --output-filename=telegram-downloader.exe `
