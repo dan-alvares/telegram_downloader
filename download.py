@@ -1,7 +1,6 @@
-from fileinput import filename
 from pathlib import Path
+from rich.progress import Progress, BarColumn, TransferSpeedColumn, TextColumn, TimeRemainingColumn
 import asyncio
-import time
 from telethon import TelegramClient
 from telethon.errors.rpcerrorlist import FloodWaitError
 from telethon.tl.types import InputMessagesFilterVideo
@@ -76,58 +75,51 @@ async def baixar_limitado(target: str, quantidade: int | None = None):
     contador = total_videos
     tasks = []
 
-    async def baixar_video(message, numero):
-        async with semaphore:
-            filename = pasta_dos_videos / f"{numero}.mp4"
+    with Progress(
+        TextColumn("[bold blue]{task.fields[filename]}"),
+        BarColumn(),
+        "[progress.percentage]{task.percentage:>3.1f}%",
+        "—",
+        TransferSpeedColumn(),
+        "—",
+        TimeRemainingColumn(),
+    ) as progress:
 
-            if filename.exists():
-                print(f"Já existe: {filename.name}")
-                return
+        semaphore = asyncio.Semaphore(4)
+        contador = total_videos
+        tasks = []
 
-            print(f"Baixando: {filename.name}")
+        async def baixar_video(message, numero):
+            async with semaphore:
+                filename = pasta_dos_videos / f"{numero}.mp4"
 
-            inicio = time.time()
-            bytes_anteriores = 0
-            ultimo_tempo = inicio
+                if filename.exists():
+                    progress.console.print(f"Já existe: {filename.name}")
+                    return
 
-            def progresso(bytes_baixados, total_bytes):
-                nonlocal bytes_anteriores, ultimo_tempo
+                task_id = progress.add_task("download", filename=filename.name, total=None)
 
-                agora = time.time()
-                intervalo = agora - ultimo_tempo
+                def progresso(bytes_baixados, total_bytes):
+                    progress.update(task_id, completed=bytes_baixados, total=total_bytes)
 
-                if intervalo >= 1.0:
-                    delta_bytes = bytes_baixados - bytes_anteriores
-                    velocidade = delta_bytes / intervalo
+                try:
+                    await client.download_media(message.video, file=filename, progress_callback=progresso)
+                except FloodWaitError as e:
+                    progress.console.print(f"Flood wait: aguardando {e.seconds}s...")
+                    await asyncio.sleep(e.seconds)
+                    progress.remove_task(task_id)
+                    return
 
-                    if velocidade >= 1_000_000:
-                        vel_str = f"{velocidade / 1_000_000:.1f} MB/s"
-                    elif velocidade >= 1_000:
-                        vel_str = f"{velocidade / 1_000:.1f} KB/s"
-                    else:
-                        vel_str = f"{velocidade:.0f} B/s"
+                progress.remove_task(task_id)
+                progress.console.print(f"Concluído: {filename.name}")
+                await asyncio.sleep(0.5)
 
-                    porcentagem = (bytes_baixados / total_bytes * 100) if total_bytes else 0
-                    print(f"[{filename.name}] {porcentagem:.1f}% — {vel_str}")
+        async for message in messages:
+            tasks.append(asyncio.create_task(baixar_video(message, contador)))
+            contador -= 1
 
-                    bytes_anteriores = bytes_baixados
-                    ultimo_tempo = agora
+        await asyncio.gather(*tasks)
 
-            try:
-                await client.download_media(message.video, file=filename, progress_callback=progresso)
-            except FloodWaitError as e:
-                print(f"Limite de download atingido. Aguardando {e.seconds} segundos...")
-                await asyncio.sleep(e.seconds)
-                return
-
-            print(f"Concluído: {filename.name}")
-            await asyncio.sleep(0.5)
-
-    async for message in messages:
-        tasks.append(asyncio.create_task(baixar_video(message, contador)))
-        contador -= 1
-
-    await asyncio.gather(*tasks)
     print("Downloads concluídos.")
 
 async def baixar_paralelo(target: str):
@@ -170,71 +162,64 @@ async def baixar_paralelo(target: str):
     contador = total_videos
     tasks = []
 
-    async def baixar_video(message, numero):
-        async with semaphore:
-            filename = pasta_dos_videos / f"{numero}.mp4"
+    with Progress(
+        TextColumn("[bold blue]{task.fields[filename]}"),
+        BarColumn(),
+        "[progress.percentage]{task.percentage:>3.1f}%",
+        "—",
+        TransferSpeedColumn(),
+        "—",
+        TimeRemainingColumn(),
+    ) as progress:
 
-            if filename.exists():
-                print(f"Já existe: {filename.name}")
-                return
+        semaphore = asyncio.Semaphore(4)
+        contador = total_videos
+        tasks = []
 
-            print(f"Baixando: {filename.name}")
+        async def baixar_video(message, numero):
+            async with semaphore:
+                filename = pasta_dos_videos / f"{numero}.mp4"
 
-            inicio = time.time()
-            bytes_anteriores = 0
-            ultimo_tempo = inicio
+                if filename.exists():
+                    progress.console.print(f"Já existe: {filename.name}")
+                    return
 
-            def progresso(bytes_baixados, total_bytes):
-                nonlocal bytes_anteriores, ultimo_tempo
+                task_id = progress.add_task("download", filename=filename.name, total=None)
 
-                agora = time.time()
-                intervalo = agora - ultimo_tempo
+                def progresso(bytes_baixados, total_bytes):
+                    progress.update(task_id, completed=bytes_baixados, total=total_bytes)
 
-                if intervalo >= 1.0:
-                    delta_bytes = bytes_baixados - bytes_anteriores
-                    velocidade = delta_bytes / intervalo
+                try:
+                    await client.download_media(message.video, file=filename, progress_callback=progresso)
+                except FloodWaitError as e:
+                    progress.console.print(f"Flood wait: aguardando {e.seconds}s...")
+                    await asyncio.sleep(e.seconds)
+                    progress.remove_task(task_id)
+                    return
 
-                    if velocidade >= 1_000_000:
-                        vel_str = f"{velocidade / 1_000_000:.1f} MB/s"
-                    elif velocidade >= 1_000:
-                        vel_str = f"{velocidade / 1_000:.1f} KB/s"
-                    else:
-                        vel_str = f"{velocidade:.0f} B/s"
+                progress.remove_task(task_id)
+                progress.console.print(f"Concluído: {filename.name}")
+                await asyncio.sleep(0.5)
 
-                    porcentagem = (bytes_baixados / total_bytes * 100) if total_bytes else 0
-                    print(f"[{filename.name}] {porcentagem:.1f}% — {vel_str}")
+        async for message in messages:
+            tasks.append(asyncio.create_task(baixar_video(message, contador)))
+            contador -= 1
 
-                    bytes_anteriores = bytes_baixados
-                    ultimo_tempo = agora
+        await asyncio.gather(*tasks)
 
-            try:
-                await client.download_media(message.video, file=filename, progress_callback=progresso)
-            except FloodWaitError as e:
-                print(f"Flood wait: aguardando {e.seconds} segundos...")
-                await asyncio.sleep(e.seconds)
-                return
-
-            print(f"Concluído: {filename.name}")
-            await asyncio.sleep(0.5)
-
-    async for message in messages:
-        tasks.append(asyncio.create_task(baixar_video(message, contador)))
-        contador -= 1
-
-    await asyncio.gather(*tasks)
     print("Downloads concluídos.")
 
 app = typer.Typer(help="Download de vídeos do Telegram")
 
 @app.command()
 def apenas():
-    link = typer.prompt('Informe o link do canal ou grupo para vaixar todos os vídeos.')
+    link = typer.prompt('Informe o link do canal ou grupo para vaixar todos os vídeos')
     quantidade = int(typer.prompt('Quantos vídeos deseja baixar?'))
     asyncio.run(baixar_limitado(link, quantidade))
 
 @app.command()
 def tudo():
-    link = typer.prompt('Informe o link do canal ou grupo para baixar vídeos em paralelo.')
+    link = typer.prompt('Informe o link do canal ou grupo para baixar vídeos em paralelo')
     asyncio.run(baixar_paralelo(link))
 
 if __name__ == "__main__":

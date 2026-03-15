@@ -35,6 +35,7 @@ jobs:
             --include-package=qrcode `
             --include-package=dotenv `
             --include-package=typer `
+            --include-package=rich `
             --output-filename=telegram-downloader.exe `
             --output-dir=dist `
             cli.py
