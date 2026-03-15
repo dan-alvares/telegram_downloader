@@ -5,7 +5,7 @@ from telethon.tl.types import InputMessagesFilterVideo
 from telethon.errors import SessionPasswordNeededError
 import typer
 from config import load_config
-import webbrowser
+import qrcode
 
 config = load_config()
 
@@ -14,11 +14,14 @@ async def autenticar(client: TelegramClient):
         print("Autenticando via QR Code...")
         qr_login = await client.qr_login()
         
-        # Abre o link no navegador
-        webbrowser.open(qr_login.url)
-        print("Uma página foi aberta no navegador.")
+        # Exibe o QR Code no terminal
+        qr = qrcode.QRCode()
+        qr.add_data(qr_login.url)
+        qr.make()
+        qr.print_ascii()
+        
         print("Abra o Telegram no celular → Configurações → Dispositivos → Conectar dispositivo")
-        print("Escaneie o QR Code exibido no navegador.")
+        print("Escaneie o QR Code acima.")
         
         try:
             await qr_login.wait(timeout=120)
