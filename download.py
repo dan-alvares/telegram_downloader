@@ -2,129 +2,154 @@ from pathlib import Path
 import asyncio
 from telethon import TelegramClient
 from telethon.tl.types import InputMessagesFilterVideo
+from telethon.errors import SessionPasswordNeededError
 import typer
 from config import load_config
-# from tqdm.asyncio import tqdm
+import webbrowser
 
 config = load_config()
 
-async def baixar_limitado(target: str, quantidade: int | None = None):
-    async with TelegramClient(config['session_name'], config['api_id'], config['api_hash']) as client:
+async def autenticar(client: TelegramClient):
+    if not await client.is_user_authorized():
+        print("Autenticando via QR Code...")
+        qr_login = await client.qr_login()
+        
+        # Abre o link no navegador
+        webbrowser.open(qr_login.url)
+        print("Uma página foi aberta no navegador com o QR Code.")
+        print("Abra o Telegram no celular → Configurações → Dispositivos → Conectar dispositivo")
+        print("Escaneie o QR Code exibido no navegador.")
+        
         try:
+            await qr_login.wait(timeout=120)
+            print("Autenticado com sucesso!")
+        except SessionPasswordNeededError:
+            senha = typer.prompt("Digite sua senha de dois fatores", hide_input=True)
+            await client.sign_in(password=senha)
+
+async def baixar_limitado(target: str, quantidade: int | None = None):
+    client = TelegramClient(config['session_name'], config['api_id'], config['api_hash'])
+    await client.connect()
+    
+    await autenticar(client)
+    try:
+        canal_id = int(target.split('/c/')[1].split('/')[0])
+        canal = int(f'-100{canal_id}')  # pyright: ignore[reportAssignmentType]
+
+        await client.get_dialogs()
+
+        try:
+            entity = await client.get_entity(canal)
+        except ValueError:
             canal_id = int(target.split('/c/')[1].split('/')[0])
-            canal = int(f'-100{canal_id}')  # pyright: ignore[reportAssignmentType]
+            canal = int(f'-100{canal_id}')
+            entity = await client.get_entity(canal)
 
-            await client.get_dialogs()
+        base_dir = Path(config['download_dir'])
+        pasta_dos_videos = base_dir / entity.title
 
-            try:
-                entity = await client.get_entity(canal)
-            except ValueError:
-                canal_id = int(target.split('/c/')[1].split('/')[0])
-                canal = int(f'-100{canal_id}')
-                entity = await client.get_entity(canal)
+    except Exception as e:
+        print(f"Erro ao obter entidade: {e}")
+        return
 
-            base_dir = Path(config['download_dir'])
-            pasta_dos_videos = base_dir / entity.title
+    pasta_dos_videos.mkdir(parents=True, exist_ok=True)
 
-        except Exception as e:
-            print(f"Erro ao obter entidade: {e}")
-            return
+    result = await client.get_messages(
+        canal,
+        filter=InputMessagesFilterVideo,
+    )  # pyright: ignore[reportUnknownMemberType]
 
-        pasta_dos_videos.mkdir(parents=True, exist_ok=True)
+    total_videos = result.total
+    limite = quantidade if quantidade is not None else total_videos
 
-        result = await client.get_messages(
-            canal,
-            filter=InputMessagesFilterVideo,
-        )  # pyright: ignore[reportUnknownMemberType]
+    print(f"Total de vídeos no canal: {total_videos}. Baixando: {limite}.")
 
-        total_videos = result.total
-        limite = quantidade if quantidade is not None else total_videos
+    messages = client.iter_messages(entity, filter=InputMessagesFilterVideo, limit=limite)
 
-        print(f"Total de vídeos no canal: {total_videos}. Baixando: {limite}.")
+    semaphore = asyncio.Semaphore(4)
+    contador = total_videos
+    tasks = []
 
-        messages = client.iter_messages(entity, filter=InputMessagesFilterVideo, limit=limite)
+    async def baixar_video(message, numero):
+        async with semaphore:
+            filename = pasta_dos_videos / f"{numero}.mp4"
 
-        semaphore = asyncio.Semaphore(4)
-        contador = total_videos
-        tasks = []
+            if filename.exists():
+                print(f"Já existe: {filename.name}")
+                return
 
-        async def baixar_video(message, numero):
-            async with semaphore:
-                filename = pasta_dos_videos / f"{numero}.mp4"
+            print(f"Baixando: {filename.name}")
+            await client.download_media(message.video, file=filename)
+            print(f"Concluído: {filename.name}")
+            await asyncio.sleep(0.5)
 
-                if filename.exists():
-                    print(f"Já existe: {filename.name}")
-                    return
+    async for message in messages:
+        tasks.append(asyncio.create_task(baixar_video(message, contador)))
+        contador -= 1
 
-                print(f"Baixando: {filename.name}")
-                await client.download_media(message.video, file=filename)
-                print(f"Concluído: {filename.name}")
-                await asyncio.sleep(0.5)
-
-        async for message in messages:
-            tasks.append(asyncio.create_task(baixar_video(message, contador)))
-            contador -= 1
-
-        await asyncio.gather(*tasks)
-        print("Downloads concluídos.")
+    await asyncio.gather(*tasks)
+    print("Downloads concluídos.")
 
 
 async def baixar_paralelo(target: str):
-    async with TelegramClient(config['session_name'], config['api_id'], config['api_hash']) as client:
+    client = TelegramClient(config['session_name'], config['api_id'], config['api_hash'])
+    await client.connect()
+    
+    await autenticar(client)
+    try:
+        canal_id = int(target.split('/c/')[1].split('/')[0])
+        canal = int(f'-100{canal_id}')  # pyright: ignore[reportAssignmentType]
+
+        await client.get_dialogs()
+
         try:
+            entity = await client.get_entity(canal)
+        except ValueError:
             canal_id = int(target.split('/c/')[1].split('/')[0])
-            canal = int(f'-100{canal_id}')  # pyright: ignore[reportAssignmentType]
+            canal = int(f'-100{canal_id}')
+            entity = await client.get_entity(canal)
 
-            await client.get_dialogs()
+        base_dir = Path(config['download_dir'])
+        pasta_dos_videos = base_dir / entity.title
 
-            try:
-                entity = await client.get_entity(canal)
-            except ValueError:
-                canal_id = int(target.split('/c/')[1].split('/')[0])
-                canal = int(f'-100{canal_id}')
-                entity = await client.get_entity(canal)
+    except Exception as e:
+        print(f"Erro ao obter entidade: {e}")
+        return
 
-            base_dir = Path(config['download_dir'])
-            pasta_dos_videos = base_dir / entity.title
+    pasta_dos_videos.mkdir(parents=True, exist_ok=True)
 
-        except Exception as e:
-            print(f"Erro ao obter entidade: {e}")
-            return
+    result = await client.get_messages(
+        canal,
+        filter=InputMessagesFilterVideo,
+    )  # pyright: ignore[reportUnknownMemberType]
 
-        pasta_dos_videos.mkdir(parents=True, exist_ok=True)
+    total_videos = result.total
 
-        result = await client.get_messages(
-            canal,
-            filter=InputMessagesFilterVideo,
-        )  # pyright: ignore[reportUnknownMemberType]
+    messages = client.iter_messages(entity, filter=InputMessagesFilterVideo)
 
-        total_videos = result.total
+    semaphore = asyncio.Semaphore(4)
+    contador = total_videos
+    tasks = []
 
-        messages = client.iter_messages(entity, filter=InputMessagesFilterVideo)
+    async def baixar_video(message, numero):
+        async with semaphore:
+            filename = pasta_dos_videos / f"{numero}.mp4"
 
-        semaphore = asyncio.Semaphore(4)
-        contador = total_videos
-        tasks = []
+            if filename.exists():
+                print(f"Já existe: {filename.name}")
+                return
 
-        async def baixar_video(message, numero):
-            async with semaphore:
-                filename = pasta_dos_videos / f"{numero}.mp4"
+            print(f"Baixando: {filename.name}")
+            await client.download_media(message.video, file=filename)
+            print(f"Concluído: {filename.name}")
+            await asyncio.sleep(0.5)
 
-                if filename.exists():
-                    print(f"Já existe: {filename.name}")
-                    return
+    async for message in messages:
+        tasks.append(asyncio.create_task(baixar_video(message, contador)))
+        contador -= 1
 
-                print(f"Baixando: {filename.name}")
-                await client.download_media(message.video, file=filename)
-                print(f"Concluído: {filename.name}")
-                await asyncio.sleep(0.5)
-
-        async for message in messages:
-            tasks.append(asyncio.create_task(baixar_video(message, contador)))
-            contador -= 1
-
-        await asyncio.gather(*tasks)
-        print("Downloads concluídos.")
+    await asyncio.gather(*tasks)
+    print("Downloads concluídos.")
 
 app = typer.Typer(help="Download de vídeos do Telegram")
 
