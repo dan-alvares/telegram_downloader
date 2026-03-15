@@ -223,7 +223,7 @@ app = typer.Typer(help="Download de vídeos do Telegram")
 @app.command()
 def apenas():
     link = typer.prompt('Informe o link do canal ou grupo para baixar todos os vídeos')
-    quantidade = typer.prompt('Quantos vídeos deseja baixar?')
+    quantidade = typer.prompt('Quantos vídeos deseja baixar?\nSe deseja baixar X últimos números de um canal informe apenas o número (ex: 10)\nSe deseja baixar um intervalo de vídeos informe no formato "início-fim" (ex: 1-44)\nSe deseja baixar vídeos específicos informe os números separados por vírgula (ex: 10,7,4,1)')
     asyncio.run(baixar_limitado(link, numeros=parse_numeros(quantidade)))
 
 @app.command()
