@@ -5,6 +5,22 @@ import typer
 
 config = load_config()
 
+def parse_numeros(valor: str) -> int | list[int] | range | None:
+    if not valor:
+        return None
+
+    # Range: "1-44"
+    if '-' in valor and valor.count('-') == 1:
+        inicio, fim = valor.split('-')
+        return range(int(inicio), int(fim) + 1)  # +1 para incluir o fim
+
+    # Lista: "10,7,4,1"
+    if ',' in valor:
+        return [int(n) for n in valor.split(',')]
+
+    # Inteiro simples: "10"
+    return int(valor)
+
 async def verificar_link(client: TelegramClient, link: str):
     try:
         canal_id = int(link.split("/c/")[1].split("/")[0])

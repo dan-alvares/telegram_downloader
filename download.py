@@ -8,6 +8,7 @@ from telethon.errors import SessionPasswordNeededError
 import typer
 from config import load_config
 import qrcode
+from util import parse_numeros
 
 config = load_config()
 
@@ -32,10 +33,10 @@ async def autenticar(client: TelegramClient):
             senha = typer.prompt("Digite sua senha de dois fatores", hide_input=True)
             await client.sign_in(password=senha)
 
-async def baixar_limitado(target: str, quantidade: int | None = None):
+async def baixar_limitado(target: str, numeros: int | list[int] | range | None = None):
     client = TelegramClient(config['session_name'], config['api_id'], config['api_hash'])
     await client.connect()
-    
+
     await autenticar(client)
     try:
         canal_id = int(target.split('/c/')[1].split('/')[0])
@@ -65,9 +66,18 @@ async def baixar_limitado(target: str, quantidade: int | None = None):
     )  # pyright: ignore[reportUnknownMemberType]
 
     total_videos = result.total
-    limite = quantidade if quantidade is not None else total_videos
 
-    print(f"Total de vídeos no canal: {total_videos}. Baixando: {limite}.")
+    if isinstance(numeros, (list, range)):
+        pendentes = set(numeros)
+        limite = total_videos
+    elif isinstance(numeros, int):
+        pendentes = None
+        limite = numeros
+    else:
+        pendentes = None
+        limite = total_videos
+
+    print(f"Total de vídeos no canal: {total_videos}. Baixando: {len(pendentes) if pendentes is not None else limite}.")
 
     messages = client.iter_messages(entity, filter=InputMessagesFilterVideo, limit=limite)
 
@@ -85,12 +95,11 @@ async def baixar_limitado(target: str, quantidade: int | None = None):
         TimeRemainingColumn(),
     ) as progress:
 
-        semaphore = asyncio.Semaphore(4)
-        contador = total_videos
-        tasks = []
-
         async def baixar_video(message, numero):
             async with semaphore:
+                if pendentes is not None and numero not in pendentes:
+                    return
+
                 filename = pasta_dos_videos / f"{numero}.mp4"
 
                 if filename.exists():
@@ -213,9 +222,9 @@ app = typer.Typer(help="Download de vídeos do Telegram")
 
 @app.command()
 def apenas():
-    link = typer.prompt('Informe o link do canal ou grupo para vaixar todos os vídeos')
-    quantidade = int(typer.prompt('Quantos vídeos deseja baixar?'))
-    asyncio.run(baixar_limitado(link, quantidade))
+    link = typer.prompt('Informe o link do canal ou grupo para baixar todos os vídeos')
+    quantidade = typer.prompt('Quantos vídeos deseja baixar?')
+    asyncio.run(baixar_limitado(link, numeros=parse_numeros(quantidade)))
 
 @app.command()
 def tudo():
