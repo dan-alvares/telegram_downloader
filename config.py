@@ -11,6 +11,7 @@ else:
 
 load_dotenv(os.path.join(BASE_DIR, ".env"))
 
+
 def load_config() -> dict[str, Any]:
     api_id = os.getenv("TG_API_ID")
     api_hash = os.getenv("TG_API_HASH")
@@ -24,5 +25,5 @@ def load_config() -> dict[str, Any]:
         "api_hash": api_hash,
         "session_name": "telegram_session",
         "download_dir": "downloads",
-        "concurrent_downloads": int(downloads_sim)
+        "concurrent_downloads": int(downloads_sim),
     }

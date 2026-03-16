@@ -12,15 +12,17 @@ import qrcode
 
 config = load_config()
 
+
 def parse_numeros(valor: str) -> int | list[int] | range | None:
     if not valor:
         return None
-    if '-' in valor and valor.count('-') == 1:
-        inicio, fim = valor.split('-')
+    if "-" in valor and valor.count("-") == 1:
+        inicio, fim = valor.split("-")
         return range(int(inicio), int(fim) + 1)
-    if ',' in valor:
-        return [int(n) for n in valor.split(',')]
+    if "," in valor:
+        return [int(n) for n in valor.split(",")]
     return int(valor)
+
 
 async def verificar_link(client: TelegramClient, link: str):
     try:
@@ -31,6 +33,7 @@ async def verificar_link(client: TelegramClient, link: str):
     except ValueError as e:
         print("Link inválido ou canal privado.\nErro:", e)
 
+
 async def autenticar(client: TelegramClient):
     if not await client.is_user_authorized():
         print("Autenticando via QR Code...")
@@ -39,7 +42,9 @@ async def autenticar(client: TelegramClient):
         qr.add_data(qr_login.url)
         qr.make()
         qr.print_ascii()
-        print("Abra o Telegram no celular → Configurações → Dispositivos → Conectar dispositivo")
+        print(
+            "Abra o Telegram no celular → Configurações → Dispositivos → Conectar dispositivo"
+        )
         print("Escaneie o QR Code acima.")
         try:
             await qr_login.wait(timeout=120)
@@ -47,6 +52,7 @@ async def autenticar(client: TelegramClient):
         except SessionPasswordNeededError:
             senha = typer.prompt("Digite sua senha de dois fatores", hide_input=True)
             await client.sign_in(password=senha)
+
 
 async def main():
     async with TelegramClient(
@@ -60,14 +66,18 @@ async def main():
                 print("Encerrando o programa.")
                 break
 
+
 # ── JSON / histórico ──────────────────────────────────────────────────────────
+
 
 def get_base_dir() -> Path:
     if "__compiled__" in dir():
         return Path(sys.executable).parent
     return Path(__file__).parent
 
+
 CURSOS_FILE = get_base_dir() / "cursos.json"
+
 
 def carregar() -> dict:
     if not CURSOS_FILE.exists():
@@ -75,9 +85,11 @@ def carregar() -> dict:
     with open(CURSOS_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
+
 def salvar(cursos: dict):
     with open(CURSOS_FILE, "w", encoding="utf-8") as f:
         json.dump(cursos, f, ensure_ascii=False, indent=2)
+
 
 def registrar_curso(nome: str, canal: str, total_videos: int) -> dict:
     cursos = carregar()
@@ -86,44 +98,40 @@ def registrar_curso(nome: str, canal: str, total_videos: int) -> dict:
             "status": "incompleto",
             "canal": canal,
             "total_videos": total_videos,
-            "videos": {}
+            "videos": {},
         }
         salvar(cursos)
     return cursos
 
+
 def registrar_video(nome: str, video_id: int, filename: str):
     cursos = carregar()
     if str(video_id) not in cursos[nome]["videos"]:
-        cursos[nome]["videos"][str(video_id)] = {
-            "status": False,
-            "arquivo": filename
-        }
+        cursos[nome]["videos"][str(video_id)] = {"status": False, "arquivo": filename}
         salvar(cursos)
+
 
 def marcar_baixado(nome: str, video_id: int, filename: str):
     cursos = carregar()
-    cursos[nome]["videos"][str(video_id)] = {
-        "status": True,
-        "arquivo": filename
-    }
+    cursos[nome]["videos"][str(video_id)] = {"status": True, "arquivo": filename}
     total = cursos[nome]["total_videos"]
     baixados = sum(1 for v in cursos[nome]["videos"].values() if v["status"])
     if baixados >= total:
         cursos[nome]["status"] = "completo"
     salvar(cursos)
 
+
 def videos_pendentes(nome: str) -> set[str]:
     cursos = carregar()
     if nome not in cursos:
         return set()
-    return {
-        vid_id for vid_id, v in cursos[nome]["videos"].items()
-        if not v["status"]
-    }
+    return {vid_id for vid_id, v in cursos[nome]["videos"].items() if not v["status"]}
+
 
 def curso_completo(nome: str) -> bool:
     cursos = carregar()
     return cursos.get(nome, {}).get("status") == "completo"
+
 
 def resetar_curso(nome: str, canal: str, total_videos: int):
     cursos = carregar()
@@ -131,11 +139,13 @@ def resetar_curso(nome: str, canal: str, total_videos: int):
         "status": "incompleto",
         "canal": canal,
         "total_videos": total_videos,
-        "videos": {}
+        "videos": {},
     }
     salvar(cursos)
 
+
 # ── Download ──────────────────────────────────────────────────────────────────
+
 
 async def baixar_video(
     message,
@@ -157,11 +167,15 @@ async def baixar_video(
 
         if video_entry:
             if video_entry["status"]:
-                progress.console.print(f"Já baixado (histórico): {video_entry['arquivo']}")
+                progress.console.print(
+                    f"Já baixado (histórico): {video_entry['arquivo']}"
+                )
                 return
             arquivo_no_disco = pasta_dos_videos / video_entry["arquivo"]
             if arquivo_no_disco.exists():
-                progress.console.print(f"Arquivo encontrado no disco: {video_entry['arquivo']}")
+                progress.console.print(
+                    f"Arquivo encontrado no disco: {video_entry['arquivo']}"
+                )
                 marcar_baixado(nome_curso, message.id, video_entry["arquivo"])
                 return
         else:
@@ -177,7 +191,9 @@ async def baixar_video(
             progress.update(task_id, completed=bytes_baixados, total=total_bytes)
 
         try:
-            await client.download_media(message.video, file=filename, progress_callback=progresso)
+            await client.download_media(
+                message.video, file=filename, progress_callback=progresso
+            )
             marcar_baixado(nome_curso, message.id, filename.name)
         except FloodWaitError as e:
             progress.console.print(f"Flood wait: aguardando {e.seconds}s...")
