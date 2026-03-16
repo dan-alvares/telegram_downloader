@@ -2,53 +2,28 @@ from pathlib import Path
 from rich.progress import Progress, BarColumn, TransferSpeedColumn, TextColumn, TimeRemainingColumn
 import asyncio
 from telethon import TelegramClient
-from telethon.errors.rpcerrorlist import FloodWaitError
 from telethon.tl.types import InputMessagesFilterVideo
-from telethon.errors import SessionPasswordNeededError
 import typer
 from config import load_config
-import qrcode
-from util import parse_numeros
+from util import (
+    parse_numeros, autenticar, baixar_video,
+    curso_completo, resetar_curso, registrar_curso
+)
 
 config = load_config()
-
-async def autenticar(client: TelegramClient):
-    if not await client.is_user_authorized():
-        print("Autenticando via QR Code...")
-        qr_login = await client.qr_login()
-        
-        # Exibe o QR Code no terminal
-        qr = qrcode.QRCode()
-        qr.add_data(qr_login.url)
-        qr.make()
-        qr.print_ascii()
-        
-        print("Abra o Telegram no celular → Configurações → Dispositivos → Conectar dispositivo")
-        print("Escaneie o QR Code acima.")
-        
-        try:
-            await qr_login.wait(timeout=120)
-            print("Autenticado com sucesso!")
-        except SessionPasswordNeededError:
-            senha = typer.prompt("Digite sua senha de dois fatores", hide_input=True)
-            await client.sign_in(password=senha)
 
 async def baixar_limitado(target: str, numeros: int | list[int] | range | None = None):
     client = TelegramClient(config['session_name'], config['api_id'], config['api_hash'])
     await client.connect()
-
     await autenticar(client)
+
     try:
         canal_id = int(target.split('/c/')[1].split('/')[0])
         canal = int(f'-100{canal_id}')  # pyright: ignore[reportAssignmentType]
-
         await client.get_dialogs()
-
         try:
             entity = await client.get_entity(canal)
         except ValueError:
-            canal_id = int(target.split('/c/')[1].split('/')[0])
-            canal = int(f'-100{canal_id}')
             entity = await client.get_entity(canal)
 
         base_dir = Path(config['download_dir'])
@@ -60,12 +35,19 @@ async def baixar_limitado(target: str, numeros: int | list[int] | range | None =
 
     pasta_dos_videos.mkdir(parents=True, exist_ok=True)
 
-    result = await client.get_messages(
-        canal,
-        filter=InputMessagesFilterVideo,
-    )  # pyright: ignore[reportUnknownMemberType]
-
+    result = await client.get_messages(canal, filter=InputMessagesFilterVideo)  # pyright: ignore[reportUnknownMemberType]
     total_videos = result.total
+    nome_curso = entity.title
+
+    if curso_completo(nome_curso):
+        resposta = typer.confirm(f'"{nome_curso}" já foi baixado por completo. Deseja baixar novamente?', default=False)
+        if not resposta:
+            print("Download pulado.")
+            await client.disconnect()
+            return
+        resetar_curso(nome_curso, target, total_videos)
+    else:
+        registrar_curso(nome_curso, target, total_videos)
 
     if isinstance(numeros, (list, range)):
         pendentes = set(numeros)
@@ -80,8 +62,7 @@ async def baixar_limitado(target: str, numeros: int | list[int] | range | None =
     print(f"Total de vídeos no canal: {total_videos}. Baixando: {len(pendentes) if pendentes is not None else limite}.")
 
     messages = client.iter_messages(entity, filter=InputMessagesFilterVideo, limit=limite)
-
-    semaphore = asyncio.Semaphore(4)
+    semaphore = asyncio.Semaphore(config['concurrent_downloads'])
     contador = total_videos
     tasks = []
 
@@ -94,59 +75,30 @@ async def baixar_limitado(target: str, numeros: int | list[int] | range | None =
         "—",
         TimeRemainingColumn(),
     ) as progress:
-
-        async def baixar_video(message, numero):
-            async with semaphore:
-                if pendentes is not None and numero not in pendentes:
-                    return
-
-                filename = pasta_dos_videos / f"{numero}.mp4"
-
-                if filename.exists():
-                    progress.console.print(f"Já existe: {filename.name}")
-                    return
-
-                task_id = progress.add_task("download", filename=filename.name, total=None)
-
-                def progresso(bytes_baixados, total_bytes):
-                    progress.update(task_id, completed=bytes_baixados, total=total_bytes)
-
-                try:
-                    await client.download_media(message.video, file=filename, progress_callback=progresso)
-                except FloodWaitError as e:
-                    progress.console.print(f"Flood wait: aguardando {e.seconds}s...")
-                    await asyncio.sleep(e.seconds)
-                    progress.remove_task(task_id)
-                    return
-
-                progress.remove_task(task_id)
-                progress.console.print(f"Concluído: {filename.name}")
-                await asyncio.sleep(0.5)
-
         async for message in messages:
-            tasks.append(asyncio.create_task(baixar_video(message, contador)))
+            tasks.append(asyncio.create_task(baixar_video(
+                message, contador, client, progress, semaphore,
+                nome_curso, pasta_dos_videos, pendentes
+            )))
             contador -= 1
 
         await asyncio.gather(*tasks)
 
+    await client.disconnect()
     print("Downloads concluídos.")
 
 async def baixar_paralelo(target: str):
     client = TelegramClient(config['session_name'], config['api_id'], config['api_hash'])
     await client.connect()
-    
     await autenticar(client)
+
     try:
         canal_id = int(target.split('/c/')[1].split('/')[0])
         canal = int(f'-100{canal_id}')  # pyright: ignore[reportAssignmentType]
-
         await client.get_dialogs()
-
         try:
             entity = await client.get_entity(canal)
         except ValueError:
-            canal_id = int(target.split('/c/')[1].split('/')[0])
-            canal = int(f'-100{canal_id}')
             entity = await client.get_entity(canal)
 
         base_dir = Path(config['download_dir'])
@@ -158,16 +110,22 @@ async def baixar_paralelo(target: str):
 
     pasta_dos_videos.mkdir(parents=True, exist_ok=True)
 
-    result = await client.get_messages(
-        canal,
-        filter=InputMessagesFilterVideo,
-    )  # pyright: ignore[reportUnknownMemberType]
-
+    result = await client.get_messages(canal, filter=InputMessagesFilterVideo)  # pyright: ignore[reportUnknownMemberType]
     total_videos = result.total
+    nome_curso = entity.title
+
+    if curso_completo(nome_curso):
+        resposta = typer.confirm(f'"{nome_curso}" já foi baixado por completo. Deseja baixar novamente?', default=False)
+        if not resposta:
+            print("Download pulado.")
+            await client.disconnect()
+            return
+        resetar_curso(nome_curso, target, total_videos)
+    else:
+        registrar_curso(nome_curso, target, total_videos)
 
     messages = client.iter_messages(entity, filter=InputMessagesFilterVideo)
-
-    semaphore = asyncio.Semaphore(4)
+    semaphore = asyncio.Semaphore(config['concurrent_downloads'])
     contador = total_videos
     tasks = []
 
@@ -180,42 +138,16 @@ async def baixar_paralelo(target: str):
         "—",
         TimeRemainingColumn(),
     ) as progress:
-
-        semaphore = asyncio.Semaphore(4)
-        contador = total_videos
-        tasks = []
-
-        async def baixar_video(message, numero):
-            async with semaphore:
-                filename = pasta_dos_videos / f"{numero}.mp4"
-
-                if filename.exists():
-                    progress.console.print(f"Já existe: {filename.name}")
-                    return
-
-                task_id = progress.add_task("download", filename=filename.name, total=None)
-
-                def progresso(bytes_baixados, total_bytes):
-                    progress.update(task_id, completed=bytes_baixados, total=total_bytes)
-
-                try:
-                    await client.download_media(message.video, file=filename, progress_callback=progresso)
-                except FloodWaitError as e:
-                    progress.console.print(f"Flood wait: aguardando {e.seconds}s...")
-                    await asyncio.sleep(e.seconds)
-                    progress.remove_task(task_id)
-                    return
-
-                progress.remove_task(task_id)
-                progress.console.print(f"Concluído: {filename.name}")
-                await asyncio.sleep(0.5)
-
         async for message in messages:
-            tasks.append(asyncio.create_task(baixar_video(message, contador)))
+            tasks.append(asyncio.create_task(baixar_video(
+                message, contador, client, progress, semaphore,
+                nome_curso, pasta_dos_videos
+            )))
             contador -= 1
 
         await asyncio.gather(*tasks)
 
+    await client.disconnect()
     print("Downloads concluídos.")
 
 app = typer.Typer(help="Download de vídeos do Telegram")
