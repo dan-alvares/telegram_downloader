@@ -1,3 +1,5 @@
+![Telegram Video Downloader](./telegram_downloader.jpg)
+
 # Instruções de uso
 
 Antes de utilizar o CLI, é preciso obter chaves de API do Telegram
@@ -22,11 +24,11 @@ DOWNLOAD_SIM=3
 
 ## Comandos
 
-``telegram_downloader.exe baixar tudo``
+``downloader.exe baixar tudo``
 
 Com este comando você será perguntado em seguida o link para o canal/grupo e o programa baixará todos os vídeos disponíveis, os salvando na pasta downloads/**nome-do-curso**.
 
-``telegram_downloader.exe baixar apenas``
+``downloader.exe baixar apenas``
 
 Já este comando baixará apenas os últimos **n** vídeos informados via input prompt do CLI, os salvando na pasta downloads/**nome-do-curso**.
 
