@@ -67,9 +67,6 @@ async def main():
                 break
 
 
-# ── JSON / histórico ──────────────────────────────────────────────────────────
-
-
 def get_base_dir() -> Path:
     if "__compiled__" in dir():
         return Path(sys.executable).parent
@@ -142,9 +139,6 @@ def resetar_curso(nome: str, canal: str, total_videos: int):
         "videos": {},
     }
     salvar(cursos)
-
-
-# ── Download ──────────────────────────────────────────────────────────────────
 
 
 async def baixar_video(

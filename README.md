@@ -28,9 +28,27 @@ DOWNLOAD_SIM=3
 
 Com este comando você será perguntado em seguida o link para o canal/grupo e o programa baixará todos os vídeos disponíveis, os salvando na pasta downloads/**nome-do-curso**.
 
+---
+
 ``downloader.exe baixar apenas``
 
 Já este comando baixará apenas os últimos **n** vídeos informados via input prompt do CLI, os salvando na pasta downloads/**nome-do-curso**.
+
+Com ele é possível solicitar o download de apenas um vídeo, uma série de vídeos num intervalo ou vários vídeos específicos numa ordem exata.
+
+**Para baixar um vídeo específico**, basta apenas informar o número que representa a ordem do vídeo dentro do canal. Se é a décima mensagem publicada, basta informar o número 10 no prompt.
+
+> 10
+
+**Para baixar uma série (sequência) de vídeos**, basta informar um intervalor separado por hífen, informando o intervalo no prompt, na forma "ínicio-fim", do menor para o maior.
+
+> 4-33
+
+**Para baixar vídeos específicos**, basta informar o número correspondente a cada vídeo, separados por vírgula, não importanto ordem, se é maior ou menor.
+
+> 3, 7, 22, 14, 65
+
+---
 
 O CLI agora conta com um simples histórico de vídeos. Assim, se por alguma razão o download for interrompido, o programa buscará o ponto que deverá retomar o download, baixando todos os arquivos incompletos.
 
