@@ -188,15 +188,28 @@ async def baixar_video(
             await client.download_media(
                 message.video, file=filename, progress_callback=progresso
             )
+            # Só marca como baixado após download completo com sucesso
             marcar_baixado(nome_curso, message.id, filename.name)
+            progress.console.print(f"Concluído: {filename.name}")
+
         except FloodWaitError as e:
             progress.console.print(f"Flood wait: aguardando {e.seconds}s...")
             await asyncio.sleep(e.seconds)
-            progress.remove_task(task_id)
-            return
+            # Deleta arquivo incompleto antes de sair
+            if filename.exists():
+                filename.unlink()
+                progress.console.print(f"Arquivo incompleto removido: {filename.name}")
 
-        progress.remove_task(task_id)
-        progress.console.print(f"Concluído: {filename.name}")
+        except Exception as e:
+            progress.console.print(f"Erro ao baixar {filename.name}: {e}")
+            # Deleta arquivo incompleto em qualquer outro erro
+            if filename.exists():
+                filename.unlink()
+                progress.console.print(f"Arquivo incompleto removido: {filename.name}")
+
+        finally:
+            progress.remove_task(task_id)
+
         await asyncio.sleep(0.5)
 
 
