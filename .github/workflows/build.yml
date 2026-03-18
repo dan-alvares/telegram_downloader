@@ -38,10 +38,12 @@ jobs:
             --standalone `
             --assume-yes-for-downloads `
             --include-package=telethon `
+            --include-package=asyncio `
             --include-package=dotenv `
-            --include-package=tqdm `
             --include-package=typer `
-            --output-filename=downloader.exe `
+            --incluide-package=rich `
+            --include-package=qrcode
+            --output-filename=telegram-downloader.exe `
             --output-dir=dist `
             --remove-output `
             cli.py
@@ -70,7 +72,7 @@ jobs:
         with:
           name: telegram-downloader_v${{ steps.version.outputs.VERSION }}
           path: telegram-downloader_v${{ steps.version.outputs.VERSION }}.zip
-          retention-days: 7
+          retention-days: 1
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
