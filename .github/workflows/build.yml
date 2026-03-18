@@ -3,7 +3,7 @@ name: Build Windows Executable
 on:
   push:
     branches:
-      - "*"
+      - master
 
 jobs:
   build:
@@ -26,23 +26,56 @@ jobs:
           uv sync --no-dev
           uv pip install nuitka zstandard
 
+      - name: Get version from pyproject.toml
+        id: version
+        run: |
+          $version = (Get-Content pyproject.toml | Select-String 'version = "(.+)"').Matches.Groups[1].Value
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
       - name: Build with Nuitka
         run: |
           uv run python -m nuitka `
             --standalone `
             --assume-yes-for-downloads `
             --include-package=telethon `
-            --include-package=qrcode `
             --include-package=dotenv `
+            --include-package=tqdm `
             --include-package=typer `
-            --include-package=rich `
-            --output-filename=telegram-downloader.exe `
+            --output-filename=downloader.exe `
             --output-dir=dist `
+            --remove-output `
             cli.py
+
+      - name: Prepare release folder
+        run: |
+          $version = "${{ steps.version.outputs.VERSION }}"
+
+          # Renomeia cli.dist para "Telegram Downloader"
+          Rename-Item -Path "dist\cli.dist" -NewName "Telegram Downloader"
+
+          # Cria o .env template
+          @"
+          TG_API_ID=
+          TG_API_HASH=
+          DOWNLOAD_SIM=3
+          "@ | Set-Content "dist\Telegram Downloader\.env"
+
+          # Compacta em .zip
+          Compress-Archive `
+            -Path "dist\Telegram Downloader" `
+            -DestinationPath "telegram-downloader_v$version.zip"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tcli-windows
-          path: dist/
+          name: telegram-downloader_v${{ steps.version.outputs.VERSION }}
+          path: telegram-downloader_v${{ steps.version.outputs.VERSION }}.zip
           retention-days: 7
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.VERSION }}
+          name: v${{ steps.version.outputs.VERSION }}
+          files: telegram-downloader_v${{ steps.version.outputs.VERSION }}.zip
+          generate_release_notes: true
