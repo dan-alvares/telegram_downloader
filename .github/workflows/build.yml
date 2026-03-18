@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: windows-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
@@ -66,13 +68,6 @@ jobs:
           Compress-Archive `
             -Path "dist\Telegram Downloader" `
             -DestinationPath "telegram-downloader_v$version.zip"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: telegram-downloader_v${{ steps.version.outputs.VERSION }}
-          path: telegram-downloader_v${{ steps.version.outputs.VERSION }}.zip
-          retention-days: 1
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
