@@ -73,72 +73,80 @@ def get_base_dir() -> Path:
     return Path(__file__).parent
 
 
-CURSOS_FILE = get_base_dir() / "cursos.json"
+HISTORICO_FILE = get_base_dir() / "historico_downloads.json"
 
 
 def carregar() -> dict:
-    if not CURSOS_FILE.exists():
+    if not HISTORICO_FILE.exists():
         return {}
-    with open(CURSOS_FILE, "r", encoding="utf-8") as f:
+    with open(HISTORICO_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
-def salvar(cursos: dict):
-    with open(CURSOS_FILE, "w", encoding="utf-8") as f:
-        json.dump(cursos, f, ensure_ascii=False, indent=2)
+def salvar(historico: dict):
+    with open(HISTORICO_FILE, "w", encoding="utf-8") as f:
+        json.dump(historico, f, ensure_ascii=False, indent=2)
 
 
-def registrar_curso(nome: str, canal: str, total_videos: int) -> dict:
-    cursos = carregar()
-    if nome not in cursos:
-        cursos[nome] = {
+def registrar_historico(nome: str, canal: str, total_videos: int) -> dict:
+    historico = carregar()
+    if nome not in historico:
+        historico[nome] = {
             "status": "incompleto",
             "canal": canal,
             "total_videos": total_videos,
             "videos": {},
         }
-        salvar(cursos)
-    return cursos
+        salvar(historico)
+    return historico
 
 
 def registrar_video(nome: str, video_id: int, filename: str):
-    cursos = carregar()
-    if str(video_id) not in cursos[nome]["videos"]:
-        cursos[nome]["videos"][str(video_id)] = {"status": False, "arquivo": filename}
-        salvar(cursos)
+    historico = carregar()
+    if str(video_id) not in historico[nome]["videos"]:
+        historico[nome]["videos"][str(video_id)] = {
+            "status": False,
+            "arquivo": filename,
+        }
+        salvar(historico)
 
 
 def marcar_baixado(nome: str, video_id: int, filename: str):
-    cursos = carregar()
-    cursos[nome]["videos"][str(video_id)] = {"status": True, "arquivo": filename}
-    total = cursos[nome]["total_videos"]
-    baixados = sum(1 for v in cursos[nome]["videos"].values() if v["status"])
+    historico = carregar()
+    historico[nome]["videos"][str(video_id)] = {
+        "status": True,
+        "arquivo": filename,
+    }
+    total = historico[nome]["total_videos"]
+    baixados = sum(1 for v in historico[nome]["videos"].values() if v["status"])
     if baixados >= total:
-        cursos[nome]["status"] = "completo"
-    salvar(cursos)
+        historico[nome]["status"] = "completo"
+    salvar(historico)
 
 
 def videos_pendentes(nome: str) -> set[str]:
-    cursos = carregar()
-    if nome not in cursos:
+    historico = carregar()
+    if nome not in historico:
         return set()
-    return {vid_id for vid_id, v in cursos[nome]["videos"].items() if not v["status"]}
+    return {
+        vid_id for vid_id, v in historico[nome]["videos"].items() if not v["status"]
+    }
 
 
-def curso_completo(nome: str) -> bool:
-    cursos = carregar()
-    return cursos.get(nome, {}).get("status") == "completo"
+def historico_completo(nome: str) -> bool:
+    historico = carregar()
+    return historico.get(nome, {}).get("status") == "completo"
 
 
-def resetar_curso(nome: str, canal: str, total_videos: int):
-    cursos = carregar()
-    cursos[nome] = {
+def resetar_historico(nome: str, canal: str, total_videos: int):
+    historico = carregar()
+    historico[nome] = {
         "status": "incompleto",
         "canal": canal,
         "total_videos": total_videos,
         "videos": {},
     }
-    salvar(cursos)
+    salvar(historico)
 
 
 async def baixar_video(
@@ -147,7 +155,7 @@ async def baixar_video(
     client: TelegramClient,
     progress: Progress,
     semaphore: asyncio.Semaphore,
-    nome_curso: str,
+    nome_historico: str,
     pasta_dos_videos: Path,
     pendentes: set[int] | None = None,
 ):
@@ -156,27 +164,30 @@ async def baixar_video(
             return
 
         filename = pasta_dos_videos / f"{numero}.mp4"
-        cursos = carregar()
-        video_entry = cursos.get(nome_curso, {}).get("videos", {}).get(str(message.id))
+        historico = carregar()
+        video_entry = (
+            historico.get(nome_historico, {}).get("videos", {}).get(str(message.id))
+        )
 
         if video_entry:
-            if video_entry["status"]:
+            arquivo_no_disco = pasta_dos_videos / video_entry["arquivo"]
+
+            if video_entry["status"] and arquivo_no_disco.exists():
                 progress.console.print(
                     f"Já baixado (histórico): {video_entry['arquivo']}"
                 )
                 return
-            arquivo_no_disco = pasta_dos_videos / video_entry["arquivo"]
-            if arquivo_no_disco.exists():
+
+            if not video_entry["status"] and arquivo_no_disco.exists():
                 progress.console.print(
-                    f"Arquivo encontrado no disco: {video_entry['arquivo']}"
+                    f"Deletando arquivo incompleto: {video_entry['arquivo']}"
                 )
-                marcar_baixado(nome_curso, message.id, video_entry["arquivo"])
-                return
+                arquivo_no_disco.unlink()
         else:
-            registrar_video(nome_curso, message.id, filename.name)
+            registrar_video(nome_historico, message.id, filename.name)
             if filename.exists():
                 progress.console.print(f"Já existe no disco: {filename.name}")
-                marcar_baixado(nome_curso, message.id, filename.name)
+                marcar_baixado(nome_historico, message.id, filename.name)
                 return
 
         task_id = progress.add_task("download", filename=filename.name, total=None)
@@ -188,29 +199,35 @@ async def baixar_video(
             await client.download_media(
                 message.video, file=filename, progress_callback=progresso
             )
-            # Só marca como baixado após download completo com sucesso
-            marcar_baixado(nome_curso, message.id, filename.name)
+            marcar_baixado(nome_historico, message.id, filename.name)
             progress.console.print(f"Concluído: {filename.name}")
+            await asyncio.sleep(0.5)
 
         except FloodWaitError as e:
             progress.console.print(f"Flood wait: aguardando {e.seconds}s...")
-            await asyncio.sleep(e.seconds)
-            # Deleta arquivo incompleto antes de sair
             if filename.exists():
                 filename.unlink()
-                progress.console.print(f"Arquivo incompleto removido: {filename.name}")
+            await asyncio.sleep(e.seconds)
+            await baixar_video(
+                message,
+                numero,
+                client,
+                progress,
+                semaphore,
+                nome_historico,
+                pasta_dos_videos,
+                pendentes,
+            )
+            return
 
         except Exception as e:
             progress.console.print(f"Erro ao baixar {filename.name}: {e}")
-            # Deleta arquivo incompleto em qualquer outro erro
             if filename.exists():
                 filename.unlink()
                 progress.console.print(f"Arquivo incompleto removido: {filename.name}")
 
         finally:
             progress.remove_task(task_id)
-
-        await asyncio.sleep(0.5)
 
 
 if __name__ == "__main__":

@@ -45,7 +45,7 @@ jobs:
             --include-package=typer `
             --include-package=rich `
             --include-package=qrcode `
-            --output-filename=telegram-downloader.exe `
+            --output-filename=downloader.exe `
             --output-dir=dist `
             --remove-output `
             cli.py
@@ -73,6 +73,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.VERSION }}
-          name: v${{ steps.version.outputs.VERSION }}
+          name: V${{ steps.version.outputs.VERSION }} - Telegram Downloader
+          body: |
+            Antes de usar, lembre-se de editar o arquivo .env no bloco de notas e preencha de acordo com as instruções.
           files: telegram-downloader_v${{ steps.version.outputs.VERSION }}.zip
-          generate_release_notes: true
