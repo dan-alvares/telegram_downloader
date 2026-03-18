@@ -9,7 +9,7 @@ Para isso, siga os passos:
 1) Acesse e realize login no Telegram em: https://my.telegram.org.
 2) Depois acesse https://my.telegram.org/apps e preencha os dados do nome da aplicação e nome curto.
 3) Salve as informações obtidas **App api_id** e **App api_hash**.
-4) Crie um arquivo .env na pasta raiz e preencha da seguinte forma:  
+4) Abra o arquivo .env na pasta raiz e preencha da seguinte forma:  
 
 ```txt
 TG_API_ID=App api_id
@@ -18,10 +18,16 @@ DOWNLOAD_SIM=3
 ```
 
 5) Insira os valores sem aspas, sem espaços e salve o arquivo .env.
-6) Se deseja baixar mais que 3 arquivos de maneira simultânea, altere o valor da **variável DOWNLOAD_SIM** no seu arquivo .env
+6) Se desejar baixar mais vídeos de maneira simultânea, altere o valor da **variável DOWNLOAD_SIM** no seu arquivo .env
 7) Depois basta seguir com a abertura do CLI, obter o link do grupo que deseja baixar seu conteúdo e seguir as instruções em tela.
 8) Ao baixar o conteúdo, será criado um diretório com subpastas, exemplo: downloads/<nome do conteúdo baixado>.
 
+---
+**Nota**: para obter o link correto para baixar vídeos de um canal, basta clicar com o botão direito e depois clicar em `Copy Post Link` sobre vídeos dentro de um grupo/canal após clicar em JOIN e fazer parte dele.
+
+Se você não fizer parte desse grupo/canal, não será possível baixar o seu conteúdo.
+
+---
 ## Comandos
 
 ``downloader.exe baixar tudo``

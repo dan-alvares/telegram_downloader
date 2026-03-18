@@ -15,9 +15,9 @@ from util import (
     parse_numeros,
     autenticar,
     baixar_video,
-    curso_completo,
-    resetar_curso,
-    registrar_curso,
+    historico_completo,
+    resetar_historico,
+    registrar_historico,
 )
 
 config = load_config()
@@ -52,7 +52,7 @@ async def baixar_limitado(target: str, numeros: int | list[int] | range | None =
     total_videos = result.total
     nome_curso = entity.title
 
-    if curso_completo(nome_curso):
+    if historico_completo(nome_curso):
         resposta = typer.confirm(
             f'"{nome_curso}" já foi baixado por completo. Deseja baixar novamente?',
             default=False,
@@ -61,9 +61,9 @@ async def baixar_limitado(target: str, numeros: int | list[int] | range | None =
             print("Download pulado.")
             await client.disconnect()
             return
-        resetar_curso(nome_curso, target, total_videos)
+        resetar_historico(nome_curso, target, total_videos)
     else:
-        registrar_curso(nome_curso, target, total_videos)
+        registrar_historico(nome_curso, target, total_videos)
 
     if isinstance(numeros, (list, range)):
         pendentes = set(numeros)
@@ -147,7 +147,7 @@ async def baixar_paralelo(target: str):
     total_videos = result.total
     nome_curso = entity.title
 
-    if curso_completo(nome_curso):
+    if historico_completo(nome_curso):
         resposta = typer.confirm(
             f'"{nome_curso}" já foi baixado por completo. Deseja baixar novamente?',
             default=False,
@@ -156,9 +156,9 @@ async def baixar_paralelo(target: str):
             print("Download pulado.")
             await client.disconnect()
             return
-        resetar_curso(nome_curso, target, total_videos)
+        resetar_historico(nome_curso, target, total_videos)
     else:
-        registrar_curso(nome_curso, target, total_videos)
+        registrar_historico(nome_curso, target, total_videos)
 
     messages = client.iter_messages(entity, filter=InputMessagesFilterVideo)
     semaphore = asyncio.Semaphore(config["concurrent_downloads"])
