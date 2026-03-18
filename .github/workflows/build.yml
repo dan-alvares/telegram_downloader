@@ -41,8 +41,8 @@ jobs:
             --include-package=asyncio `
             --include-package=dotenv `
             --include-package=typer `
-            --incluide-package=rich `
-            --include-package=qrcode
+            --include-package=rich `
+            --include-package=qrcode `
             --output-filename=telegram-downloader.exe `
             --output-dir=dist `
             --remove-output `
