@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 from rich.progress import (
     Progress,
     BarColumn,
@@ -21,6 +22,16 @@ from util import (
 )
 
 config = load_config()
+
+
+async def continuar_download():
+    with open("historico_downloads.json", "r") as arquivo:
+        historico = json.load(arquivo)
+
+    for nome, info in historico.items():
+        if info["status"] == "incompleto":
+            print(f'Continuando download de "{nome}"...')
+            await baixar_paralelo(info["canal"])
 
 
 async def baixar_limitado(target: str, numeros: int | list[int] | range | None = None):
@@ -210,10 +221,14 @@ def apenas():
 
 @app.command()
 def tudo():
-    link = typer.prompt(
-        "Informe o link do canal ou grupo para baixar vídeos em paralelo"
-    )
+    link = typer.prompt("Informe o link do canal ou grupo para baixar todos os vídeos")
     asyncio.run(baixar_paralelo(link))
+
+
+@app.command()
+def continuar():
+    typer.echo("Continuando downloads pendentes...")
+    asyncio.run(continuar_download())
 
 
 if __name__ == "__main__":
