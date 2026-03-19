@@ -154,7 +154,9 @@ async def baixar_paralelo(target: str):
 
     pasta_dos_videos.mkdir(parents=True, exist_ok=True)
 
-    result = await client.get_messages(canal, filter=InputMessagesFilterVideo)  # pyright: ignore[reportUnknownMemberType]
+    result = await client.get_messages(
+        canal, filter=InputMessagesFilterVideo, reverse=True
+    )  # pyright: ignore[reportUnknownMemberType]
     total_videos = result.total
     nome_curso = entity.title
 
@@ -171,9 +173,11 @@ async def baixar_paralelo(target: str):
     else:
         registrar_historico(nome_curso, target, total_videos)
 
-    messages = client.iter_messages(entity, filter=InputMessagesFilterVideo)
+    messages = client.iter_messages(
+        entity, filter=InputMessagesFilterVideo, reverse=True
+    )  # pyright: ignore[reportUnknownMemberType]
     semaphore = asyncio.Semaphore(config["concurrent_downloads"])
-    contador = total_videos
+    contador = 1
     tasks = []
 
     with Progress(
@@ -199,7 +203,7 @@ async def baixar_paralelo(target: str):
                     )
                 )
             )
-            contador -= 1
+            contador += 1
 
         await asyncio.gather(*tasks)
 
