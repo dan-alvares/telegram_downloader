@@ -32,13 +32,15 @@ Se você não fizer parte desse grupo/canal, não será possível baixar o seu c
 
 ``downloader.exe baixar tudo``
 
-Com este comando você será perguntado em seguida o link para o canal/grupo e o programa baixará todos os vídeos disponíveis, os salvando na pasta downloads/**nome-do-curso**.
+Com este comando você será perguntado em seguida o link para o canal/grupo e o programa baixará todos os vídeos disponíveis, os salvando na pasta downloads/**nome-do-canal**.
+
+Ainda é possível baixar o conteúdo de vários canais, em fila, fornecendo diversos links separados por vírgula. Por exemplo, ao ser perguntado pelo CLI, basta informar: `https://t.me/c/link_A, https://t.me/c/link_B`. O programa irá organizar a fila, baixando primeiro o link A e depois o link B.
 
 ---
 
 ``downloader.exe baixar apenas``
 
-Já este comando baixará apenas os últimos **n** vídeos informados via input prompt do CLI, os salvando na pasta downloads/**nome-do-curso**.
+Já este comando baixará apenas os últimos **n** vídeos informados via input prompt do CLI, os salvando na pasta downloads/**nome-do-canal**.
 
 Com ele é possível solicitar o download de apenas um vídeo, uma série de vídeos num intervalo ou vários vídeos específicos numa ordem exata.
 
