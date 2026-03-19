@@ -60,6 +60,8 @@ Com ele é possível solicitar o download de apenas um vídeo, uma série de ví
 
 Este comando irá retomar o download de conteúdo inacabado, do ponto onde parou.
 
+---
+
 O CLI agora conta com um simples histórico de vídeos. Assim, se por alguma razão o download for interrompido, o programa buscará o ponto que deverá retomar o download, baixando todos os arquivos incompletos.
 
 **Este CLI não é afiliado de qualquer maneira com o Telegram e não me responsabilizo por seu uso.**
