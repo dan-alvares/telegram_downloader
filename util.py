@@ -24,6 +24,14 @@ def parse_numeros(valor: str) -> int | list[int] | range | None:
     return int(valor)
 
 
+def parse_links(valor: str) -> str | list[str]:
+    if not valor:
+        return None
+    if "," in valor:
+        return [link.strip() for link in valor.split(",")]
+    return valor.strip()
+
+
 async def verificar_link(client: TelegramClient, link: str):
     try:
         canal_id = int(link.split("/c/")[1].split("/")[0])
