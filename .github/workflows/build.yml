@@ -14,27 +14,48 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check version bump
+        id: version
+        shell: pwsh
+        run: |
+          $current = (Get-Content pyproject.toml | Select-String 'version = "(.+)"').Matches.Groups[1].Value
+
+          git show HEAD~1:pyproject.toml | Out-File -Encoding utf8 prev_pyproject.toml
+          $previous = (Get-Content prev_pyproject.toml | Select-String 'version = "(.+)"').Matches.Groups[1].Value
+
+          Write-Host "Current version: $current"
+          Write-Host "Previous version: $previous"
+
+          if ($current -eq $previous) {
+            Write-Host "Version unchanged. Skipping build."
+            echo "VERSION_CHANGED=false" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Host "Version changed: $previous -> $current"
+            echo "VERSION_CHANGED=true" >> $env:GITHUB_OUTPUT
+            echo "VERSION=$current" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Set up Python
+        if: steps.version.outputs.VERSION_CHANGED == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install uv
+        if: steps.version.outputs.VERSION_CHANGED == 'true'
         run: pip install uv
 
       - name: Install dependencies
+        if: steps.version.outputs.VERSION_CHANGED == 'true'
         run: |
           uv sync --no-dev
           uv pip install nuitka zstandard
 
-      - name: Get version from pyproject.toml
-        id: version
-        run: |
-          $version = (Get-Content pyproject.toml | Select-String 'version = "(.+)"').Matches.Groups[1].Value
-          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
-
       - name: Build with Nuitka
+        if: steps.version.outputs.VERSION_CHANGED == 'true'
         run: |
           uv run python -m nuitka `
             --standalone `
@@ -51,6 +72,7 @@ jobs:
             cli.py
 
       - name: Prepare release folder
+        if: steps.version.outputs.VERSION_CHANGED == 'true'
         run: |
           $version = "${{ steps.version.outputs.VERSION }}"
 
@@ -70,6 +92,7 @@ jobs:
             -DestinationPath "telegram-downloader_v$version.zip"
 
       - name: Create GitHub Release
+        if: steps.version.outputs.VERSION_CHANGED == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.VERSION }}
