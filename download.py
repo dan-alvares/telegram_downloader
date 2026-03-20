@@ -34,8 +34,8 @@ async def continuar_download():
         if info["status"] == "incompleto":
             print(f'Continuando download de "{nome}"...')
             await baixar_paralelo(info["canal"])
-        else:
-            print("Nenhum download pendente encontrado no seu histórico.")
+
+    print("Nenhum download pendente encontrado no seu histórico.\n")
 
 
 async def baixar_limitado(target: str, numeros: int | list[int] | range | None = None):
