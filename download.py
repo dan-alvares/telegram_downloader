@@ -34,6 +34,8 @@ async def continuar_download():
         if info["status"] == "incompleto":
             print(f'Continuando download de "{nome}"...')
             await baixar_paralelo(info["canal"])
+        else:
+            print("Nenhum download pendente encontrado no seu histórico.")
 
 
 async def baixar_limitado(target: str, numeros: int | list[int] | range | None = None):
@@ -183,6 +185,7 @@ async def baixar_paralelo(target: str | list[str]):
             resetar_historico(nome_curso, link, total_videos)
         else:
             registrar_historico(nome_curso, link, total_videos)
+            typer.echo(f'Iniciando download de "{nome_curso}"...\n')
 
         messages = client.iter_messages(
             entity, filter=InputMessagesFilterVideo, reverse=True
