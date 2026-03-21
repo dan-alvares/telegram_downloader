@@ -66,6 +66,7 @@ jobs:
             --include-package=typer `
             --include-package=rich `
             --include-package=qrcode `
+            --include-package=questionary `
             --output-filename=downloader.exe `
             --output-dir=dist `
             --remove-output `
