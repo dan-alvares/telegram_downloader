@@ -181,3 +181,4 @@ typings/
 ffmpeg/
 telegram_session.session
 historico_downloads.json
+*:Zone.Identifier

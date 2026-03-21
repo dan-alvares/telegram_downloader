@@ -42,7 +42,7 @@ async def continuar_download():
         return
 
     for colecao, nome, info in pendentes:
-        print(f'Continuando download de "{nome}" (coleção: "{colecao}")...')
+        print(f'Continuando download de "{nome}" ({colecao})...')
         await baixar_paralelo(info["canal"], colecao_forcada=colecao)
 
 
@@ -160,70 +160,88 @@ async def baixar_paralelo(
     await client.connect()
     await autenticar(client)
 
-    fila = deque([target] if isinstance(target, str) else target)
+    links = [target] if isinstance(target, str) else list(target)
 
-    # Quando há múltiplos links, pergunta a coleção uma única vez antes de iniciar
-    colecao: str | None = colecao_forcada
-    if colecao is None and len(fila) > 1:
-        typer.echo(f"\n{len(fila)} links na fila. Escolha a coleção para este lote:")
-        colecao = await selecionar_ou_criar_colecao()
-
-    while fila:
-        link = fila.popleft()
-        restantes = len(fila)
-        print(
-            f"\nProcessando: {link}"
-            + (f" ({restantes} restante(s) na fila)" if restantes else "")
-        )
-
+    await client.get_dialogs()
+    entradas: list[dict] = []
+    for link in links:
         try:
             canal_id = int(link.split("/c/")[1].split("/")[0])
             canal = int(f"-100{canal_id}")  # pyright: ignore[reportAssignmentType]
-            await client.get_dialogs()
             try:
                 entity = await client.get_entity(canal)
             except ValueError:
                 entity = await client.get_entity(canal)
-
-            nome_curso = entity.title
-
-            # Link único: pergunta a coleção individualmente
-            colecao_atual = colecao
-            if colecao_atual is None:
-                typer.echo(f'\nEscolha a coleção para "{nome_curso}":')
-                colecao_atual = await selecionar_ou_criar_colecao()
-
-            base_dir = Path(config["download_dir"])
-            pasta_dos_videos = base_dir / colecao_atual / nome_curso
-
+            entradas.append({"link": link, "canal": canal, "entity": entity})
         except Exception as e:
-            print(f"Erro ao obter entidade: {e}")
-            continue
+            print(f"Erro ao obter entidade para {link}: {e}")
 
-        pasta_dos_videos.mkdir(parents=True, exist_ok=True)
+    if not entradas:
+        await client.disconnect()
+        return
 
+    colecao: str | None = colecao_forcada
+
+    if colecao is None and len(entradas) > 1:
+        typer.echo(
+            f"\n{len(entradas)} links na fila. Escolha a coleção para este lote:"
+        )
+        colecao = await selecionar_ou_criar_colecao()
+    elif colecao is None:
+        nome_curso_unico = entradas[0]["entity"].title
+        typer.echo(f'\nEscolha a coleção para "{nome_curso_unico}":')
+        colecao = await selecionar_ou_criar_colecao()
+
+    for entrada in entradas:
+        nome_curso = entrada["entity"].title
         result = await client.get_messages(
-            canal, filter=InputMessagesFilterVideo, reverse=True
+            entrada["canal"], filter=InputMessagesFilterVideo, reverse=True
         )  # pyright: ignore[reportUnknownMemberType]
-        total_videos = result.total
+        entrada["total_videos"] = result.total
 
-        if historico_completo(colecao_atual, nome_curso):
+        if historico_completo(colecao, nome_curso):
             resposta = typer.confirm(
                 f'"{nome_curso}" já foi baixado por completo. Deseja baixar novamente?',
                 default=False,
             )
             if not resposta:
-                print("Download pulado.")
+                entrada["pular"] = True
                 continue
-            resetar_historico(colecao_atual, nome_curso, link, total_videos)
+            resetar_historico(
+                colecao, nome_curso, entrada["link"], entrada["total_videos"]
+            )
         else:
-            registrar_historico(colecao_atual, nome_curso, link, total_videos)
-            typer.echo(
-                f'Iniciando download de "{nome_curso}" em "{colecao_atual}"...\n'
+            registrar_historico(
+                colecao, nome_curso, entrada["link"], entrada["total_videos"]
             )
 
+        entrada["pular"] = False
+
+    typer.echo(f'\nTodos os links registrados em "{colecao}". Iniciando downloads...')
+
+    fila = deque(entradas)
+    while fila:
+        entrada = fila.popleft()
+        restantes = len(fila)
+        nome_curso = entrada["entity"].title
+
+        if entrada.get("pular"):
+            print(f'"{nome_curso}" pulado.')
+            continue
+
+        print(
+            f"\nProcessando: {entrada['link']}"
+            + (f" ({restantes} restante(s) na fila)" if restantes else "")
+        )
+
+        base_dir = Path(config["download_dir"])
+        pasta_dos_videos = base_dir / colecao / nome_curso
+        pasta_dos_videos.mkdir(parents=True, exist_ok=True)
+
+        typer.echo(f'Iniciando download de "{nome_curso}" em "{colecao}"...\n')
+
         messages = client.iter_messages(
-            entity, filter=InputMessagesFilterVideo, reverse=True
+            entrada["entity"], filter=InputMessagesFilterVideo, reverse=True
         )  # pyright: ignore[reportUnknownMemberType]
         semaphore = asyncio.Semaphore(config["concurrent_downloads"])
         contador = 1
@@ -247,7 +265,7 @@ async def baixar_paralelo(
                             client,
                             progress,
                             semaphore,
-                            colecao_atual,
+                            colecao,
                             nome_curso,
                             pasta_dos_videos,
                         )
