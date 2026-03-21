@@ -1,5 +1,4 @@
 from pathlib import Path
-import json
 from collections import deque
 from rich.progress import (
     Progress,
@@ -21,24 +20,37 @@ from util import (
     historico_completo,
     resetar_historico,
     registrar_historico,
+    selecionar_ou_criar_colecao,
+    carregar,
 )
 
 config = load_config()
 
 
 async def continuar_download():
-    with open("historico_downloads.json", "r") as arquivo:
-        historico = json.load(arquivo)
+    historico = carregar()
 
-    for nome, info in historico.items():
-        if info["status"] == "incompleto":
-            print(f'Continuando download de "{nome}"...')
-            await baixar_paralelo(info["canal"])
+    pendentes = [
+        (colecao, nome, info)
+        for colecao, cursos in historico.items()
+        for nome, info in cursos.items()
+        if info["status"] == "incompleto"
+    ]
 
-    print("Nenhum download pendente encontrado no seu histórico.\n")
+    if not pendentes:
+        print("Nenhum download pendente encontrado no seu histórico.\n")
+        return
+
+    for colecao, nome, info in pendentes:
+        print(f'Continuando download de "{nome}" (coleção: "{colecao}")...')
+        await baixar_paralelo(info["canal"], colecao_forcada=colecao)
 
 
-async def baixar_limitado(target: str, numeros: int | list[int] | range | None = None):
+async def baixar_limitado(
+    target: str,
+    numeros: int | list[int] | range | None = None,
+    colecao: str | None = None,
+):
     client = TelegramClient(
         config["session_name"], config["api_id"], config["api_hash"]
     )
@@ -54,8 +66,13 @@ async def baixar_limitado(target: str, numeros: int | list[int] | range | None =
         except ValueError:
             entity = await client.get_entity(canal)
 
+        nome_curso = entity.title
+
+        if colecao is None:
+            colecao = await selecionar_ou_criar_colecao()
+
         base_dir = Path(config["download_dir"])
-        pasta_dos_videos = base_dir / entity.title
+        pasta_dos_videos = base_dir / colecao / nome_curso
 
     except Exception as e:
         print(f"Erro ao obter entidade: {e}")
@@ -65,9 +82,8 @@ async def baixar_limitado(target: str, numeros: int | list[int] | range | None =
 
     result = await client.get_messages(canal, filter=InputMessagesFilterVideo)  # pyright: ignore[reportUnknownMemberType]
     total_videos = result.total
-    nome_curso = entity.title
 
-    if historico_completo(nome_curso):
+    if historico_completo(colecao, nome_curso):
         resposta = typer.confirm(
             f'"{nome_curso}" já foi baixado por completo. Deseja baixar novamente?',
             default=False,
@@ -76,9 +92,9 @@ async def baixar_limitado(target: str, numeros: int | list[int] | range | None =
             print("Download pulado.")
             await client.disconnect()
             return
-        resetar_historico(nome_curso, target, total_videos)
+        resetar_historico(colecao, nome_curso, target, total_videos)
     else:
-        registrar_historico(nome_curso, target, total_videos)
+        registrar_historico(colecao, nome_curso, target, total_videos)
 
     if isinstance(numeros, (list, range)):
         pendentes = set(numeros)
@@ -119,6 +135,7 @@ async def baixar_limitado(target: str, numeros: int | list[int] | range | None =
                         client,
                         progress,
                         semaphore,
+                        colecao,
                         nome_curso,
                         pasta_dos_videos,
                         pendentes,
@@ -133,7 +150,10 @@ async def baixar_limitado(target: str, numeros: int | list[int] | range | None =
     print("Downloads concluídos.")
 
 
-async def baixar_paralelo(target: str | list[str]):
+async def baixar_paralelo(
+    target: str | list[str],
+    colecao_forcada: str | None = None,
+):
     client = TelegramClient(
         config["session_name"], config["api_id"], config["api_hash"]
     )
@@ -141,6 +161,12 @@ async def baixar_paralelo(target: str | list[str]):
     await autenticar(client)
 
     fila = deque([target] if isinstance(target, str) else target)
+
+    # Quando há múltiplos links, pergunta a coleção uma única vez antes de iniciar
+    colecao: str | None = colecao_forcada
+    if colecao is None and len(fila) > 1:
+        typer.echo(f"\n{len(fila)} links na fila. Escolha a coleção para este lote:")
+        colecao = await selecionar_ou_criar_colecao()
 
     while fila:
         link = fila.popleft()
@@ -159,8 +185,16 @@ async def baixar_paralelo(target: str | list[str]):
             except ValueError:
                 entity = await client.get_entity(canal)
 
+            nome_curso = entity.title
+
+            # Link único: pergunta a coleção individualmente
+            colecao_atual = colecao
+            if colecao_atual is None:
+                typer.echo(f'\nEscolha a coleção para "{nome_curso}":')
+                colecao_atual = await selecionar_ou_criar_colecao()
+
             base_dir = Path(config["download_dir"])
-            pasta_dos_videos = base_dir / entity.title
+            pasta_dos_videos = base_dir / colecao_atual / nome_curso
 
         except Exception as e:
             print(f"Erro ao obter entidade: {e}")
@@ -172,9 +206,8 @@ async def baixar_paralelo(target: str | list[str]):
             canal, filter=InputMessagesFilterVideo, reverse=True
         )  # pyright: ignore[reportUnknownMemberType]
         total_videos = result.total
-        nome_curso = entity.title
 
-        if historico_completo(nome_curso):
+        if historico_completo(colecao_atual, nome_curso):
             resposta = typer.confirm(
                 f'"{nome_curso}" já foi baixado por completo. Deseja baixar novamente?',
                 default=False,
@@ -182,10 +215,12 @@ async def baixar_paralelo(target: str | list[str]):
             if not resposta:
                 print("Download pulado.")
                 continue
-            resetar_historico(nome_curso, link, total_videos)
+            resetar_historico(colecao_atual, nome_curso, link, total_videos)
         else:
-            registrar_historico(nome_curso, link, total_videos)
-            typer.echo(f'Iniciando download de "{nome_curso}"...\n')
+            registrar_historico(colecao_atual, nome_curso, link, total_videos)
+            typer.echo(
+                f'Iniciando download de "{nome_curso}" em "{colecao_atual}"...\n'
+            )
 
         messages = client.iter_messages(
             entity, filter=InputMessagesFilterVideo, reverse=True
@@ -212,6 +247,7 @@ async def baixar_paralelo(target: str | list[str]):
                             client,
                             progress,
                             semaphore,
+                            colecao_atual,
                             nome_curso,
                             pasta_dos_videos,
                         )

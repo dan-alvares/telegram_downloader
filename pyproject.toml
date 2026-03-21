@@ -8,8 +8,10 @@ dependencies = [
     "asyncio>=4.0.0",
     "python-dotenv>=1.2.2",
     "qrcode>=8.2",
+    "questionary>=2.1.1",
     "rich>=14.3.3",
     "telethon>=1.42.0",
+    "textual>=8.1.1",
     "typer>=0.24.1",
 ]
 

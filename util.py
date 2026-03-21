@@ -96,10 +96,84 @@ def salvar(historico: dict):
         json.dump(historico, f, ensure_ascii=False, indent=2)
 
 
-def registrar_historico(nome: str, canal: str, total_videos: int) -> dict:
+# ── Helpers de coleção ────────────────────────────────────────────────────────
+
+COLECAO_GENERICA = "Sem Coleção"
+
+_OPCAO_NOVA = "•  Criar nova coleção"
+_OPCAO_NENHUMA = "•  Sem coleção"
+
+
+def listar_colecoes() -> list[str]:
+    """Retorna os nomes de todas as coleções já existentes no histórico."""
     historico = carregar()
-    if nome not in historico:
-        historico[nome] = {
+    return list(historico.keys())
+
+
+async def selecionar_ou_criar_colecao() -> str:
+    """
+    Interativamente pergunta ao usuário a qual coleção o download pertence.
+    Permite escolher uma existente com setas direcionais, criar uma nova, ou
+    não vincular a nenhuma (agrupa em COLECAO_GENERICA).
+    Retorna o nome da coleção escolhida/criada.
+    """
+    import questionary
+
+    colecoes = listar_colecoes()
+    opcoes = colecoes + [_OPCAO_NOVA, _OPCAO_NENHUMA]
+
+    escolha = await questionary.select(
+        "A qual coleção este download pertence?",
+        choices=opcoes,
+        default=_OPCAO_NENHUMA,
+        instruction="(use as setas para navegar)",
+    ).ask_async()
+
+    if escolha is None:
+        # Usuário cancelou com Ctrl+C
+        raise typer.Abort()
+
+    if escolha == _OPCAO_NENHUMA:
+        typer.echo(f'Agrupando em "{COLECAO_GENERICA}".')
+        return COLECAO_GENERICA
+
+    if escolha == _OPCAO_NOVA:
+        colecao = await questionary.text(
+            "Nome da nova coleção:",
+            validate=lambda v: "Informe um nome." if not v.strip() else True,
+        ).ask_async()
+        if colecao is None:
+            raise typer.Abort()
+        colecao = colecao.strip()
+        typer.echo(f'Nova coleção criada: "{colecao}".')
+        return colecao
+
+    typer.echo(f'Adicionando à coleção "{escolha}".')
+    return escolha
+
+
+# ── Histórico ─────────────────────────────────────────────────────────────────
+#
+# Estrutura do JSON:
+# {
+#   "<coleção>": {
+#     "<nome_curso>": {
+#       "status": "incompleto" | "completo",
+#       "canal": "<link>",
+#       "total_videos": N,
+#       "videos": {
+#         "<message_id>": { "status": bool, "arquivo": "<filename>" }
+#       }
+#     }
+#   }
+# }
+
+
+def registrar_historico(colecao: str, nome: str, canal: str, total_videos: int) -> dict:
+    historico = carregar()
+    historico.setdefault(colecao, {})
+    if nome not in historico[colecao]:
+        historico[colecao][nome] = {
             "status": "incompleto",
             "canal": canal,
             "total_videos": total_videos,
@@ -109,46 +183,48 @@ def registrar_historico(nome: str, canal: str, total_videos: int) -> dict:
     return historico
 
 
-def registrar_video(nome: str, video_id: int, filename: str):
+def registrar_video(colecao: str, nome: str, video_id: int, filename: str):
     historico = carregar()
-    if str(video_id) not in historico[nome]["videos"]:
-        historico[nome]["videos"][str(video_id)] = {
+    if str(video_id) not in historico[colecao][nome]["videos"]:
+        historico[colecao][nome]["videos"][str(video_id)] = {
             "status": False,
             "arquivo": filename,
         }
         salvar(historico)
 
 
-def marcar_baixado(nome: str, video_id: int, filename: str):
+def marcar_baixado(colecao: str, nome: str, video_id: int, filename: str):
     historico = carregar()
-    historico[nome]["videos"][str(video_id)] = {
+    historico[colecao][nome]["videos"][str(video_id)] = {
         "status": True,
         "arquivo": filename,
     }
-    total = historico[nome]["total_videos"]
-    baixados = sum(1 for v in historico[nome]["videos"].values() if v["status"])
+    total = historico[colecao][nome]["total_videos"]
+    baixados = sum(
+        1 for v in historico[colecao][nome]["videos"].values() if v["status"]
+    )
     if baixados >= total:
-        historico[nome]["status"] = "completo"
+        historico[colecao][nome]["status"] = "completo"
     salvar(historico)
 
 
-def videos_pendentes(nome: str) -> set[str]:
+def videos_pendentes(colecao: str, nome: str) -> set[str]:
     historico = carregar()
-    if nome not in historico:
+    curso = historico.get(colecao, {}).get(nome)
+    if not curso:
         return set()
-    return {
-        vid_id for vid_id, v in historico[nome]["videos"].items() if not v["status"]
-    }
+    return {vid_id for vid_id, v in curso["videos"].items() if not v["status"]}
 
 
-def historico_completo(nome: str) -> bool:
+def historico_completo(colecao: str, nome: str) -> bool:
     historico = carregar()
-    return historico.get(nome, {}).get("status") == "completo"
+    return historico.get(colecao, {}).get(nome, {}).get("status") == "completo"
 
 
-def resetar_historico(nome: str, canal: str, total_videos: int):
+def resetar_historico(colecao: str, nome: str, canal: str, total_videos: int):
     historico = carregar()
-    historico[nome] = {
+    historico.setdefault(colecao, {})
+    historico[colecao][nome] = {
         "status": "incompleto",
         "canal": canal,
         "total_videos": total_videos,
@@ -157,12 +233,16 @@ def resetar_historico(nome: str, canal: str, total_videos: int):
     salvar(historico)
 
 
+# ── Download ──────────────────────────────────────────────────────────────────
+
+
 async def baixar_video(
     message,
     numero: int,
     client: TelegramClient,
     progress: Progress,
     semaphore: asyncio.Semaphore,
+    colecao: str,
     nome_historico: str,
     pasta_dos_videos: Path,
     pendentes: set[int] | None = None,
@@ -174,7 +254,10 @@ async def baixar_video(
         filename = pasta_dos_videos / f"{numero}.mp4"
         historico = carregar()
         video_entry = (
-            historico.get(nome_historico, {}).get("videos", {}).get(str(message.id))
+            historico.get(colecao, {})
+            .get(nome_historico, {})
+            .get("videos", {})
+            .get(str(message.id))
         )
 
         if video_entry:
@@ -192,10 +275,10 @@ async def baixar_video(
                 )
                 arquivo_no_disco.unlink()
         else:
-            registrar_video(nome_historico, message.id, filename.name)
+            registrar_video(colecao, nome_historico, message.id, filename.name)
             if filename.exists():
                 progress.console.print(f"Já existe no disco: {filename.name}")
-                marcar_baixado(nome_historico, message.id, filename.name)
+                marcar_baixado(colecao, nome_historico, message.id, filename.name)
                 return
 
         task_id = progress.add_task("download", filename=filename.name, total=None)
@@ -207,7 +290,7 @@ async def baixar_video(
             await client.download_media(
                 message.video, file=filename, progress_callback=progresso
             )
-            marcar_baixado(nome_historico, message.id, filename.name)
+            marcar_baixado(colecao, nome_historico, message.id, filename.name)
             progress.console.print(f"Concluído: {filename.name}")
             await asyncio.sleep(0.5)
 
@@ -222,6 +305,7 @@ async def baixar_video(
                 client,
                 progress,
                 semaphore,
+                colecao,
                 nome_historico,
                 pasta_dos_videos,
                 pendentes,
