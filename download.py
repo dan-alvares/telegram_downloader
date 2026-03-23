@@ -5,6 +5,8 @@ from rich.progress import (
     BarColumn,
     TransferSpeedColumn,
     TextColumn,
+    FileSizeColumn,
+    TotalFileSizeColumn,
     TimeRemainingColumn,
 )
 import asyncio
@@ -119,11 +121,14 @@ async def baixar_limitado(
 
     with Progress(
         TextColumn("[bold blue]{task.fields[filename]}"),
-        BarColumn(),
+        BarColumn(bar_width=20),
         "[progress.percentage]{task.percentage:>3.1f}%",
-        "—",
+        " [",
+        FileSizeColumn(),
+        ":",
+        TotalFileSizeColumn(),
+        "] ",
         TransferSpeedColumn(),
-        "—",
         TimeRemainingColumn(),
     ) as progress:
         async for message in messages:
@@ -249,11 +254,14 @@ async def baixar_paralelo(
 
         with Progress(
             TextColumn("[bold blue]{task.fields[filename]}"),
-            BarColumn(),
+            BarColumn(bar_width=20),
             "[progress.percentage]{task.percentage:>3.1f}%",
-            "—",
+            " [",
+            FileSizeColumn(),
+            ":",
+            TotalFileSizeColumn(),
+            "] ",
             TransferSpeedColumn(),
-            "—",
             TimeRemainingColumn(),
         ) as progress:
             async for message in messages:

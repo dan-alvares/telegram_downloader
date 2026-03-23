@@ -12,6 +12,11 @@ import qrcode
 
 config = load_config()
 
+COLECAO_GENERICA = "Sem Coleção"
+
+_OPCAO_NOVA = "•  Criar nova coleção"
+_OPCAO_NENHUMA = "•  Sem coleção"
+
 
 def parse_numeros(valor: str) -> int | list[int] | range | None:
     if not valor:
@@ -96,14 +101,6 @@ def salvar(historico: dict):
         json.dump(historico, f, ensure_ascii=False, indent=2)
 
 
-# ── Helpers de coleção ────────────────────────────────────────────────────────
-
-COLECAO_GENERICA = "Sem Coleção"
-
-_OPCAO_NOVA = "•  Criar nova coleção"
-_OPCAO_NENHUMA = "•  Sem coleção"
-
-
 def listar_colecoes() -> list[str]:
     """Retorna os nomes de todas as coleções já existentes no histórico."""
     historico = carregar()
@@ -130,7 +127,6 @@ async def selecionar_ou_criar_colecao() -> str:
     ).ask_async()
 
     if escolha is None:
-        # Usuário cancelou com Ctrl+C
         raise typer.Abort()
 
     if escolha == _OPCAO_NENHUMA:
@@ -152,8 +148,6 @@ async def selecionar_ou_criar_colecao() -> str:
     return escolha
 
 
-# ── Histórico ─────────────────────────────────────────────────────────────────
-#
 # Estrutura do JSON:
 # {
 #   "<coleção>": {
@@ -233,9 +227,6 @@ def resetar_historico(colecao: str, nome: str, canal: str, total_videos: int):
     salvar(historico)
 
 
-# ── Download ──────────────────────────────────────────────────────────────────
-
-
 async def baixar_video(
     message,
     numero: int,
@@ -266,6 +257,12 @@ async def baixar_video(
             if video_entry["status"] and arquivo_no_disco.exists():
                 progress.console.print(
                     f"Já baixado (histórico): {video_entry['arquivo']}"
+                )
+                return
+
+            elif video_entry["status"] and not arquivo_no_disco.exists():
+                progress.console.print(
+                    f"Arquivo marcado como baixado, mas não encontrado: {video_entry['arquivo']}"
                 )
                 return
 
