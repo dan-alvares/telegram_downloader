@@ -8,14 +8,35 @@ from telethon.errors import SessionPasswordNeededError
 from rich.progress import Progress
 from config import load_config
 import typer
+from loguru import logger
 import qrcode
 
 config = load_config()
+
+
+def get_base_dir() -> Path:
+    if "__compiled__" in dir():
+        return Path(sys.executable).parent
+    return Path(__file__).parent
+
+
+HISTORICO_FILE = get_base_dir() / "historico_downloads.json"
 
 COLECAO_GENERICA = "Sem Coleção"
 
 _OPCAO_NOVA = "•  Criar nova coleção"
 _OPCAO_NENHUMA = "•  Sem coleção"
+
+logger.configure(
+    handlers=[
+        {
+            "sink": get_base_dir() / "logs" / "app.log",
+            "rotation": "10 MB",
+            "retention": "7 days",
+            "format": "[{time:DD-MM-YYYY HH:mm:ss}] [{level}] {message}",
+        },
+    ]
+)
 
 
 def parse_numeros(valor: str) -> int | list[int] | range | None:
@@ -37,14 +58,17 @@ def parse_links(valor: str) -> str | list[str]:
     return valor.strip()
 
 
-async def verificar_link(client: TelegramClient, link: str):
+async def verificar_link(client: TelegramClient, link: str) -> str:
+    """Verifica o link e retorna o título do canal/grupo, ou string vazia em caso de erro."""
     try:
         canal_id = int(link.split("/c/")[1].split("/")[0])
         canal = int(f"-100{canal_id}")
         entidade = await client.get_entity(canal)
         print(f"Canal encontrado: {entidade.title}")  # type: ignore
+        return entidade.title  # type: ignore
     except ValueError as e:
         print("Link inválido ou canal privado.\nErro:", e)
+        return ""
 
 
 async def autenticar(client: TelegramClient):
@@ -78,15 +102,6 @@ async def main():
             if not verificar_novamente:
                 print("Encerrando o programa.")
                 break
-
-
-def get_base_dir() -> Path:
-    if "__compiled__" in dir():
-        return Path(sys.executable).parent
-    return Path(__file__).parent
-
-
-HISTORICO_FILE = get_base_dir() / "historico_downloads.json"
 
 
 def carregar() -> dict:
@@ -227,6 +242,11 @@ def resetar_historico(colecao: str, nome: str, canal: str, total_videos: int):
     salvar(historico)
 
 
+def _log_ctx(colecao: str, canal: str, arquivo: str) -> str:
+    """Monta o prefixo de contexto padrão para as entradas de log."""
+    return f"[coleção: {colecao}] [canal: {canal}] [arquivo: {arquivo}]"
+
+
 async def baixar_video(
     message,
     numero: int,
@@ -236,6 +256,7 @@ async def baixar_video(
     colecao: str,
     nome_historico: str,
     pasta_dos_videos: Path,
+    nome_canal: str = "",
     pendentes: set[int] | None = None,
 ):
     async with semaphore:
@@ -243,6 +264,8 @@ async def baixar_video(
             return
 
         filename = pasta_dos_videos / f"{numero}.mp4"
+        ctx = _log_ctx(colecao, nome_canal, filename.name)
+
         historico = carregar()
         video_entry = (
             historico.get(colecao, {})
@@ -253,28 +276,30 @@ async def baixar_video(
 
         if video_entry:
             arquivo_no_disco = pasta_dos_videos / video_entry["arquivo"]
+            ctx_entry = _log_ctx(colecao, nome_canal, video_entry["arquivo"])
 
             if video_entry["status"] and arquivo_no_disco.exists():
-                progress.console.print(
-                    f"Já baixado (histórico): {video_entry['arquivo']}"
-                )
+                logger.info(f"{ctx_entry} | Já baixado (histórico), pulando.")
                 return
 
             elif video_entry["status"] and not arquivo_no_disco.exists():
-                progress.console.print(
-                    f"Arquivo marcado como baixado, mas não encontrado: {video_entry['arquivo']}"
+                logger.warning(
+                    f"{ctx_entry} | Arquivo marcado como baixado, mas não encontrado no disco."
                 )
                 return
 
             if not video_entry["status"] and arquivo_no_disco.exists():
-                progress.console.print(
-                    f"Deletando arquivo incompleto: {video_entry['arquivo']}"
+                logger.warning(
+                    f"{ctx_entry} | Arquivo incompleto encontrado no disco, removendo para novo download."
                 )
                 arquivo_no_disco.unlink()
         else:
             registrar_video(colecao, nome_historico, message.id, filename.name)
             if filename.exists():
-                progress.console.print(f"Já existe no disco: {filename.name}")
+                logger.info(
+                    f"{ctx} | Arquivo já existe no disco, marcando como baixado."
+                )
+                progress.console.log(f"Já existe no disco: {filename.name}")
                 marcar_baixado(colecao, nome_historico, message.id, filename.name)
                 return
 
@@ -284,15 +309,19 @@ async def baixar_video(
             progress.update(task_id, completed=bytes_baixados, total=total_bytes)
 
         try:
+            logger.info(f"{ctx} | Iniciando download.")
             await client.download_media(
                 message.video, file=filename, progress_callback=progresso
             )
             marcar_baixado(colecao, nome_historico, message.id, filename.name)
-            progress.console.print(f"Concluído: {filename.name}")
+            logger.success(f"{ctx} | Download concluído com sucesso.")
             await asyncio.sleep(0.5)
 
         except FloodWaitError as e:
-            progress.console.print(f"Flood wait: aguardando {e.seconds}s...")
+            logger.warning(
+                f"{ctx} | Flood wait detectado: aguardando {e.seconds}s antes de tentar novamente."
+            )
+            progress.console.log(f"[yellow]Flood wait: aguardando {e.seconds}s...[/]")
             if filename.exists():
                 filename.unlink()
             await asyncio.sleep(e.seconds)
@@ -305,15 +334,20 @@ async def baixar_video(
                 colecao,
                 nome_historico,
                 pasta_dos_videos,
+                nome_canal,
                 pendentes,
             )
             return
 
         except Exception as e:
-            progress.console.print(f"Erro ao baixar {filename.name}: {e}")
+            logger.error(f"{ctx} | Erro ao baixar: {e}")
+            progress.console.log(f"[red]Erro ao baixar {filename.name}: {e}[/]")
             if filename.exists():
                 filename.unlink()
-                progress.console.print(f"Arquivo incompleto removido: {filename.name}")
+                logger.warning(f"{ctx} | Arquivo incompleto removido do disco.")
+                progress.console.log(
+                    f"[yellow]Arquivo incompleto removido: {filename.name}[/]"
+                )
 
         finally:
             progress.remove_task(task_id)

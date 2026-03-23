@@ -10,6 +10,7 @@ build:
 		--include-package=asyncio \
 		--include-package=dotenv \
 		--include-package=typer \
+		--include-package=loguru \
 		--include-package=rich \
 		--include-package=qrcode \
 		--include-package=questionary \
@@ -18,6 +19,7 @@ build:
 		--remove-output \
 		cli.py
 	mv dist/cli.dist dist/build_atual
+	chmod +x dist/build_atual/downloader
 
 clean:
 	rm -rf dist/

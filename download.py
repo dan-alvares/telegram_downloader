@@ -143,7 +143,8 @@ async def baixar_limitado(
                         colecao,
                         nome_curso,
                         pasta_dos_videos,
-                        pendentes,
+                        nome_canal=nome_curso,
+                        pendentes=pendentes,
                     )
                 )
             )
@@ -276,6 +277,7 @@ async def baixar_paralelo(
                             colecao,
                             nome_curso,
                             pasta_dos_videos,
+                            nome_canal=nome_curso,
                         )
                     )
                 )
