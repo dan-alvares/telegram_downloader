@@ -25,6 +25,8 @@ DOWNLOAD_SIM=3
 7) Depois basta seguir com a abertura do CLI, obter o link do grupo que deseja baixar seu conteúdo e seguir as instruções em tela.
 8) Ao baixar o conteúdo, será criado um diretório com subpastas, exemplo: downloads/<nome do conteúdo baixado>.
 
+O CLI agora pode ser utilizado simplesmente abrindo o seu executável. Após abrir será apresentado um menu para escolher as principais funções, como apresentado na seção comandos deste README.
+
 ---
 **Nota**: para obter o link correto para baixar vídeos de um canal, basta clicar com o botão direito e depois clicar em `Copy Post Link` sobre vídeos dentro de um grupo/canal após clicar em JOIN e fazer parte dele.
 
