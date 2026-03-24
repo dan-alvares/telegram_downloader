@@ -5,6 +5,7 @@ import asyncio
 from telethon import TelegramClient
 from telethon.errors.rpcerrorlist import FloodWaitError
 from telethon.errors import SessionPasswordNeededError
+from telethon.tl.types import DocumentAttributeFilename
 from rich.progress import Progress
 from config import load_config
 import typer
@@ -26,6 +27,12 @@ COLECAO_GENERICA = "Sem Coleção"
 
 _OPCAO_NOVA = "•  Criar nova coleção"
 _OPCAO_NENHUMA = "•  Sem coleção"
+
+COMPRESSED_EXTENSIONS = (".rar", ".zip", ".7z", ".tar", ".gz")
+DOCUMENT_EXTENSIONS = (".pdf", ".txt", ".docx", ".doc", ".html", ".htm")
+IMAGE_EXTENSIONS = (".jpg", ".jpeg")
+
+ANEXO_EXTENSIONS = COMPRESSED_EXTENSIONS + DOCUMENT_EXTENSIONS + IMAGE_EXTENSIONS
 
 logger.configure(
     handlers=[
@@ -130,14 +137,23 @@ async def selecionar_ou_criar_colecao() -> str:
     Retorna o nome da coleção escolhida/criada.
     """
     import questionary
+    from questionary import Style
 
-    colecoes = listar_colecoes()
+    estilo = Style(
+        [
+            ("selected", "fg:cyan bold"),  # opção destacada no menu
+            ("pointer", "fg:cyan bold"),  # seta ❯
+            ("highlighted", "fg:cyan bold"),  # texto da opção em foco
+        ]
+    )
+
+    colecoes = [c for c in listar_colecoes() if c != COLECAO_GENERICA]
     opcoes = colecoes + [_OPCAO_NOVA, _OPCAO_NENHUMA]
 
     escolha = await questionary.select(
         "A qual coleção este download pertence?",
         choices=opcoes,
-        default=_OPCAO_NENHUMA,
+        style=estilo,
         instruction="(use as setas para navegar)",
     ).ask_async()
 
@@ -170,7 +186,11 @@ async def selecionar_ou_criar_colecao() -> str:
 #       "status": "incompleto" | "completo",
 #       "canal": "<link>",
 #       "total_videos": N,
+#       "total_anexos": N,
 #       "videos": {
+#         "<message_id>": { "status": bool, "arquivo": "<filename>" }
+#       },
+#       "anexos": {
 #         "<message_id>": { "status": bool, "arquivo": "<filename>" }
 #       }
 #     }
@@ -178,7 +198,18 @@ async def selecionar_ou_criar_colecao() -> str:
 # }
 
 
-def registrar_historico(colecao: str, nome: str, canal: str, total_videos: int) -> dict:
+def is_anexo(extensao: str) -> bool:
+    """Retorna True se a extensão corresponde a um anexo (compactado, documento ou imagem)."""
+    return extensao.lower() in ANEXO_EXTENSIONS
+
+
+def registrar_historico(
+    colecao: str,
+    nome: str,
+    canal: str,
+    total_videos: int,
+    total_anexos: int,
+) -> dict:
     historico = carregar()
     historico.setdefault(colecao, {})
     if nome not in historico[colecao]:
@@ -186,43 +217,60 @@ def registrar_historico(colecao: str, nome: str, canal: str, total_videos: int) 
             "status": "incompleto",
             "canal": canal,
             "total_videos": total_videos,
+            "total_anexos": total_anexos,
             "videos": {},
+            "anexos": {},
         }
         salvar(historico)
     return historico
 
 
-def registrar_video(colecao: str, nome: str, video_id: int, filename: str):
+def registrar_arquivo(
+    colecao: str,
+    nome: str,
+    file_id: int,
+    filename: str,
+    eh_anexo: bool,
+):
+    """Registra um arquivo (vídeo ou anexo) no histórico com status False."""
     historico = carregar()
-    if str(video_id) not in historico[colecao][nome]["videos"]:
-        historico[colecao][nome]["videos"][str(video_id)] = {
+    chave = "anexos" if eh_anexo else "videos"
+    if str(file_id) not in historico[colecao][nome][chave]:
+        historico[colecao][nome][chave][str(file_id)] = {
             "status": False,
             "arquivo": filename,
         }
         salvar(historico)
 
 
-def marcar_baixado(colecao: str, nome: str, video_id: int, filename: str):
+def marcar_baixado(
+    colecao: str,
+    nome: str,
+    file_id: int,
+    filename: str,
+    eh_anexo: bool,
+):
+    """Marca um arquivo (vídeo ou anexo) como baixado e atualiza o status geral."""
     historico = carregar()
-    historico[colecao][nome]["videos"][str(video_id)] = {
+    chave = "anexos" if eh_anexo else "videos"
+    historico[colecao][nome][chave][str(file_id)] = {
         "status": True,
         "arquivo": filename,
     }
-    total = historico[colecao][nome]["total_videos"]
-    baixados = sum(
+
+    total_videos = historico[colecao][nome]["total_videos"]
+    total_anexos = historico[colecao][nome]["total_anexos"]
+    baixados_videos = sum(
         1 for v in historico[colecao][nome]["videos"].values() if v["status"]
     )
-    if baixados >= total:
+    baixados_anexos = sum(
+        1 for a in historico[colecao][nome]["anexos"].values() if a["status"]
+    )
+
+    if baixados_videos >= total_videos and baixados_anexos >= total_anexos:
         historico[colecao][nome]["status"] = "completo"
+
     salvar(historico)
-
-
-def videos_pendentes(colecao: str, nome: str) -> set[str]:
-    historico = carregar()
-    curso = historico.get(colecao, {}).get(nome)
-    if not curso:
-        return set()
-    return {vid_id for vid_id, v in curso["videos"].items() if not v["status"]}
 
 
 def historico_completo(colecao: str, nome: str) -> bool:
@@ -230,14 +278,22 @@ def historico_completo(colecao: str, nome: str) -> bool:
     return historico.get(colecao, {}).get(nome, {}).get("status") == "completo"
 
 
-def resetar_historico(colecao: str, nome: str, canal: str, total_videos: int):
+def resetar_historico(
+    colecao: str,
+    nome: str,
+    canal: str,
+    total_videos: int,
+    total_anexos: int,
+):
     historico = carregar()
     historico.setdefault(colecao, {})
     historico[colecao][nome] = {
         "status": "incompleto",
         "canal": canal,
         "total_videos": total_videos,
+        "total_anexos": total_anexos,
         "videos": {},
+        "anexos": {},
     }
     salvar(historico)
 
@@ -245,6 +301,18 @@ def resetar_historico(colecao: str, nome: str, canal: str, total_videos: int):
 def _log_ctx(colecao: str, canal: str, arquivo: str) -> str:
     """Monta o prefixo de contexto padrão para as entradas de log."""
     return f"[coleção: {colecao}] [canal: {canal}] [arquivo: {arquivo}]"
+
+
+def _obter_extensao(message) -> str:
+    """
+    Retorna a extensão real do arquivo da mensagem.
+    Fallback para '.mp4' em vídeos nativos sem DocumentAttributeFilename.
+    """
+    if message.document:
+        for attr in message.document.attributes:
+            if isinstance(attr, DocumentAttributeFilename):
+                return Path(attr.file_name).suffix
+    return ".mp4"
 
 
 async def baixar_video(
@@ -263,44 +331,54 @@ async def baixar_video(
         if pendentes is not None and numero not in pendentes:
             return
 
-        filename = pasta_dos_videos / f"{numero}.mp4"
+        extensao = _obter_extensao(message)
+        eh_anexo = is_anexo(extensao)
+
+        # Nome baseado no índice do tipo: 1.mp4, 2.mp4 ou 1.rar, 2.rar etc.
+        nome_arquivo = f"{numero}{extensao}"
+        filename = pasta_dos_videos / nome_arquivo
         ctx = _log_ctx(colecao, nome_canal, filename.name)
 
         historico = carregar()
-        video_entry = (
+        chave = "anexos" if eh_anexo else "videos"
+        file_entry = (
             historico.get(colecao, {})
             .get(nome_historico, {})
-            .get("videos", {})
+            .get(chave, {})
             .get(str(message.id))
         )
 
-        if video_entry:
-            arquivo_no_disco = pasta_dos_videos / video_entry["arquivo"]
-            ctx_entry = _log_ctx(colecao, nome_canal, video_entry["arquivo"])
+        if file_entry:
+            arquivo_no_disco = pasta_dos_videos / file_entry["arquivo"]
+            ctx_entry = _log_ctx(colecao, nome_canal, file_entry["arquivo"])
 
-            if video_entry["status"] and arquivo_no_disco.exists():
+            if file_entry["status"] and arquivo_no_disco.exists():
                 logger.info(f"{ctx_entry} | Já baixado (histórico), pulando.")
                 return
 
-            elif video_entry["status"] and not arquivo_no_disco.exists():
+            elif file_entry["status"] and not arquivo_no_disco.exists():
                 logger.warning(
                     f"{ctx_entry} | Arquivo marcado como baixado, mas não encontrado no disco."
                 )
                 return
 
-            if not video_entry["status"] and arquivo_no_disco.exists():
+            if not file_entry["status"] and arquivo_no_disco.exists():
                 logger.warning(
                     f"{ctx_entry} | Arquivo incompleto encontrado no disco, removendo para novo download."
                 )
                 arquivo_no_disco.unlink()
         else:
-            registrar_video(colecao, nome_historico, message.id, filename.name)
+            registrar_arquivo(
+                colecao, nome_historico, message.id, filename.name, eh_anexo
+            )
             if filename.exists():
                 logger.info(
                     f"{ctx} | Arquivo já existe no disco, marcando como baixado."
                 )
                 progress.console.log(f"Já existe no disco: {filename.name}")
-                marcar_baixado(colecao, nome_historico, message.id, filename.name)
+                marcar_baixado(
+                    colecao, nome_historico, message.id, filename.name, eh_anexo
+                )
                 return
 
         task_id = progress.add_task("download", filename=filename.name, total=None)
@@ -310,10 +388,11 @@ async def baixar_video(
 
         try:
             logger.info(f"{ctx} | Iniciando download.")
+            media = message.document or message
             await client.download_media(
-                message.video, file=filename, progress_callback=progresso
+                media, file=filename, progress_callback=progresso
             )
-            marcar_baixado(colecao, nome_historico, message.id, filename.name)
+            marcar_baixado(colecao, nome_historico, message.id, filename.name, eh_anexo)
             logger.success(f"{ctx} | Download concluído com sucesso.")
             await asyncio.sleep(0.5)
 

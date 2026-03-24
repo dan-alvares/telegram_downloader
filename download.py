@@ -11,7 +11,10 @@ from rich.progress import (
 )
 import asyncio
 from telethon import TelegramClient
-from telethon.tl.types import InputMessagesFilterVideo
+from telethon.tl.types import (
+    DocumentAttributeFilename,
+    DocumentAttributeVideo,
+)
 import typer
 from config import load_config
 from util import (
@@ -24,9 +27,113 @@ from util import (
     registrar_historico,
     selecionar_ou_criar_colecao,
     carregar,
+    COMPRESSED_EXTENSIONS,
+    DOCUMENT_EXTENSIONS,
+    IMAGE_EXTENSIONS,
+    ANEXO_EXTENSIONS,
 )
 
 config = load_config()
+
+VIDEO_EXTENSIONS = (".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".m4v")
+
+COMPRESSED_MIMETYPES = (
+    "application/zip",
+    "application/x-rar-compressed",
+    "application/x-rar",
+    "application/x-7z-compressed",
+    "application/gzip",
+    "application/x-tar",
+)
+
+DOCUMENT_MIMETYPES = (
+    "application/pdf",
+    "text/plain",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/html",
+)
+
+IMAGE_MIMETYPES = ("image/jpeg",)
+
+TARGET_MIMETYPES = COMPRESSED_MIMETYPES + DOCUMENT_MIMETYPES + IMAGE_MIMETYPES
+
+
+def is_target_file(message) -> bool:
+    """Retorna True se a mensagem contém vídeo, compactado, documento ou imagem."""
+    if not message.document:
+        return False
+
+    mime = getattr(message.document, "mime_type", "") or ""
+    if mime in TARGET_MIMETYPES:
+        return True
+
+    filename = None
+    is_video_attr = False
+
+    for attr in message.document.attributes:
+        if isinstance(attr, DocumentAttributeFilename):
+            filename = attr.file_name.lower()
+        if isinstance(attr, DocumentAttributeVideo):
+            is_video_attr = True
+
+    is_video = is_video_attr or (filename and filename.endswith(VIDEO_EXTENSIONS))
+    is_compressed = filename and filename.endswith(COMPRESSED_EXTENSIONS)
+    is_document = filename and filename.endswith(DOCUMENT_EXTENSIONS)
+    is_image = filename and filename.endswith(IMAGE_EXTENSIONS)
+
+    return bool(is_video or is_compressed or is_document or is_image)
+
+
+def _eh_anexo_message(message) -> bool:
+    """Verifica se a mensagem é um anexo (compactado, documento ou imagem)."""
+    if not message.document:
+        return False
+
+    mime = getattr(message.document, "mime_type", "") or ""
+    if mime in TARGET_MIMETYPES:
+        # Vídeos podem ter mime video/* — só é anexo se NÃO for vídeo por atributo
+        for attr in message.document.attributes:
+            if isinstance(attr, DocumentAttributeVideo):
+                return False
+        return True
+
+    for attr in message.document.attributes:
+        if isinstance(attr, DocumentAttributeFilename):
+            return attr.file_name.lower().endswith(ANEXO_EXTENSIONS)
+
+    return False
+
+
+async def coletar_mensagens_filtradas(client, canal) -> list:
+    """Itera todas as mensagens do canal do mais antigo ao mais recente."""
+    filtered = []
+    async for message in client.iter_messages(canal, reverse=True):
+        if is_target_file(message):
+            filtered.append(message)
+    return filtered
+
+
+def _separar_e_enumerar(messages: list) -> list[tuple[object, int]]:
+    """
+    Recebe uma lista de mensagens filtradas e retorna uma lista de tuplas
+    (message, numero), onde 'numero' é o índice dentro do próprio tipo:
+    vídeos são numerados 1..N independente dos anexos e vice-versa.
+    A ordem original (por message.id) é preservada.
+    """
+    contador_videos = 0
+    contador_anexos = 0
+    resultado = []
+
+    for message in messages:
+        if _eh_anexo_message(message):
+            contador_anexos += 1
+            resultado.append((message, contador_anexos))
+        else:
+            contador_videos += 1
+            resultado.append((message, contador_videos))
+
+    return resultado
 
 
 async def continuar_download():
@@ -82,8 +189,11 @@ async def baixar_limitado(
 
     pasta_dos_videos.mkdir(parents=True, exist_ok=True)
 
-    result = await client.get_messages(canal, filter=InputMessagesFilterVideo)  # pyright: ignore[reportUnknownMemberType]
-    total_videos = result.total
+    print("Coletando arquivos do canal...")
+    all_messages = await coletar_mensagens_filtradas(client, canal)
+
+    total_videos = sum(1 for m in all_messages if not _eh_anexo_message(m))
+    total_anexos = sum(1 for m in all_messages if _eh_anexo_message(m))
 
     if historico_completo(colecao, nome_curso):
         resposta = typer.confirm(
@@ -94,29 +204,28 @@ async def baixar_limitado(
             print("Download pulado.")
             await client.disconnect()
             return
-        resetar_historico(colecao, nome_curso, target, total_videos)
+        resetar_historico(colecao, nome_curso, target, total_videos, total_anexos)
     else:
-        registrar_historico(colecao, nome_curso, target, total_videos)
+        registrar_historico(colecao, nome_curso, target, total_videos, total_anexos)
+
+    enumerados = _separar_e_enumerar(all_messages)
 
     if isinstance(numeros, (list, range)):
         pendentes = set(numeros)
-        limite = total_videos
+        messages_enum = enumerados
     elif isinstance(numeros, int):
         pendentes = None
-        limite = numeros
+        messages_enum = enumerados[:numeros]
     else:
         pendentes = None
-        limite = total_videos
+        messages_enum = enumerados
 
+    total_baixar = len(pendentes) if pendentes is not None else len(messages_enum)
     print(
-        f"Total de vídeos no canal: {total_videos}. Baixando: {len(pendentes) if pendentes is not None else limite}."
+        f"Vídeos: {total_videos} | Anexos: {total_anexos} | Baixando: {total_baixar}."
     )
 
-    messages = client.iter_messages(
-        entity, filter=InputMessagesFilterVideo, limit=limite
-    )
     semaphore = asyncio.Semaphore(config["concurrent_downloads"])
-    contador = total_videos
     tasks = []
 
     with Progress(
@@ -131,12 +240,12 @@ async def baixar_limitado(
         TransferSpeedColumn(),
         TimeRemainingColumn(),
     ) as progress:
-        async for message in messages:
+        for message, numero in messages_enum:
             tasks.append(
                 asyncio.create_task(
                     baixar_video(
                         message,
-                        contador,
+                        numero,
                         client,
                         progress,
                         semaphore,
@@ -148,7 +257,6 @@ async def baixar_limitado(
                     )
                 )
             )
-            contador -= 1
 
         await asyncio.gather(*tasks)
 
@@ -200,10 +308,16 @@ async def baixar_paralelo(
 
     for entrada in entradas:
         nome_curso = entrada["entity"].title
-        result = await client.get_messages(
-            entrada["canal"], filter=InputMessagesFilterVideo, reverse=True
-        )  # pyright: ignore[reportUnknownMemberType]
-        entrada["total_videos"] = result.total
+
+        print(f'Coletando arquivos de "{nome_curso}"...')
+        filtered = await coletar_mensagens_filtradas(client, entrada["canal"])
+
+        total_videos = sum(1 for m in filtered if not _eh_anexo_message(m))
+        total_anexos = sum(1 for m in filtered if _eh_anexo_message(m))
+
+        entrada["messages_enum"] = _separar_e_enumerar(filtered)
+        entrada["total_videos"] = total_videos
+        entrada["total_anexos"] = total_anexos
 
         if historico_completo(colecao, nome_curso):
             resposta = typer.confirm(
@@ -214,11 +328,11 @@ async def baixar_paralelo(
                 entrada["pular"] = True
                 continue
             resetar_historico(
-                colecao, nome_curso, entrada["link"], entrada["total_videos"]
+                colecao, nome_curso, entrada["link"], total_videos, total_anexos
             )
         else:
             registrar_historico(
-                colecao, nome_curso, entrada["link"], entrada["total_videos"]
+                colecao, nome_curso, entrada["link"], total_videos, total_anexos
             )
 
         entrada["pular"] = False
@@ -244,13 +358,15 @@ async def baixar_paralelo(
         pasta_dos_videos = base_dir / colecao / nome_curso
         pasta_dos_videos.mkdir(parents=True, exist_ok=True)
 
-        typer.echo(f'Iniciando download de "{nome_curso}" em "{colecao}"...\n')
+        typer.echo(
+            f'Iniciando download de "{nome_curso}" em "{colecao}"...'
+            f" ({entrada['total_videos']} vídeo(s), {entrada['total_anexos']} anexo(s))\n"
+        )
 
-        messages = client.iter_messages(
-            entrada["entity"], filter=InputMessagesFilterVideo, reverse=True
-        )  # pyright: ignore[reportUnknownMemberType]
+        # Mensagens já coletadas em ordem crescente (reverse=True no iter_messages)
+        messages_enum = entrada["messages_enum"]
+
         semaphore = asyncio.Semaphore(config["concurrent_downloads"])
-        contador = 1
         tasks = []
 
         with Progress(
@@ -265,12 +381,12 @@ async def baixar_paralelo(
             TransferSpeedColumn(),
             TimeRemainingColumn(),
         ) as progress:
-            async for message in messages:
+            for message, numero in messages_enum:
                 tasks.append(
                     asyncio.create_task(
                         baixar_video(
                             message,
-                            contador,
+                            numero,
                             client,
                             progress,
                             semaphore,
@@ -281,7 +397,6 @@ async def baixar_paralelo(
                         )
                     )
                 )
-                contador += 1
 
             await asyncio.gather(*tasks)
 
