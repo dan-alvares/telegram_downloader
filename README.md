@@ -1,4 +1,4 @@
-![Telegram Video Downloader](./telegram_downloader.jpg)
+![Telegram Video Downloader](./downloader.png)
 
 # Como baixar o Telegram Downloader?
 Acesse a [página de releases](https://github.com/dan-alvares/telegram_downloader/releases) e faça download da última versão disponível.

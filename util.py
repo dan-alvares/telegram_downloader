@@ -137,15 +137,6 @@ async def selecionar_ou_criar_colecao() -> str:
     Retorna o nome da coleção escolhida/criada.
     """
     import questionary
-    from questionary import Style
-
-    estilo = Style(
-        [
-            ("selected", "fg:cyan bold"),  # opção destacada no menu
-            ("pointer", "fg:cyan bold"),  # seta ❯
-            ("highlighted", "fg:cyan bold"),  # texto da opção em foco
-        ]
-    )
 
     colecoes = [c for c in listar_colecoes() if c != COLECAO_GENERICA]
     opcoes = colecoes + [_OPCAO_NOVA, _OPCAO_NENHUMA]
@@ -153,7 +144,7 @@ async def selecionar_ou_criar_colecao() -> str:
     escolha = await questionary.select(
         "A qual coleção este download pertence?",
         choices=opcoes,
-        style=estilo,
+        default=_OPCAO_NENHUMA,
         instruction="(use as setas para navegar)",
     ).ask_async()
 
@@ -419,14 +410,44 @@ async def baixar_video(
             return
 
         except Exception as e:
-            logger.error(f"{ctx} | Erro ao baixar: {e}")
-            progress.console.log(f"[red]Erro ao baixar {filename.name}: {e}[/]")
             if filename.exists():
                 filename.unlink()
                 logger.warning(f"{ctx} | Arquivo incompleto removido do disco.")
                 progress.console.log(
                     f"[yellow]Arquivo incompleto removido: {filename.name}[/]"
                 )
+
+            if "file reference" in str(e).lower() or "expired" in str(e).lower():
+                logger.warning(
+                    f"{ctx} | Referência de arquivo expirada, recarregando mensagem..."
+                )
+                progress.console.log(
+                    f"[yellow]Referência expirada, recarregando: {filename.name}[/]"
+                )
+                try:
+                    message = await client.get_messages(message.peer_id, ids=message.id)
+                    if message:
+                        await baixar_video(
+                            message,
+                            numero,
+                            client,
+                            progress,
+                            semaphore,
+                            colecao,
+                            nome_historico,
+                            pasta_dos_videos,
+                            nome_canal,
+                            pendentes,
+                        )
+                except Exception as retry_err:
+                    logger.error(f"{ctx} | Falha ao recarregar mensagem: {retry_err}")
+                    progress.console.log(
+                        f"[red]Falha ao recarregar {filename.name}: {retry_err}[/]"
+                    )
+                return
+
+            logger.error(f"{ctx} | Erro ao baixar: {e}")
+            progress.console.log(f"[red]Erro ao baixar {filename.name}: {e}[/]")
 
         finally:
             progress.remove_task(task_id)
