@@ -1,4 +1,4 @@
-name: Build Windows Executable
+name: Build Executables
 
 on:
   push:
@@ -6,10 +6,11 @@ on:
       - master
 
 jobs:
-  build:
-    runs-on: windows-latest
-    permissions:
-      contents: write
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version_changed: ${{ steps.version.outputs.VERSION_CHANGED }}
+      version: ${{ steps.version.outputs.VERSION }}
 
     steps:
       - name: Checkout code
@@ -19,43 +20,47 @@ jobs:
 
       - name: Check version bump
         id: version
-        shell: pwsh
         run: |
-          $current = (Get-Content pyproject.toml | Select-String 'version = "(.+)"').Matches.Groups[1].Value
+          current=$(grep -oP 'version = "\K[^"]+' pyproject.toml)
+          previous=$(git show HEAD~1:pyproject.toml | grep -oP 'version = "\K[^"]+')
 
-          git show HEAD~1:pyproject.toml | Out-File -Encoding utf8 prev_pyproject.toml
-          $previous = (Get-Content prev_pyproject.toml | Select-String 'version = "(.+)"').Matches.Groups[1].Value
+          echo "Current version: $current"
+          echo "Previous version: $previous"
 
-          Write-Host "Current version: $current"
-          Write-Host "Previous version: $previous"
+          if [ "$current" = "$previous" ]; then
+            echo "Version unchanged. Skipping build."
+            echo "VERSION_CHANGED=false" >> $GITHUB_OUTPUT
+          else
+            echo "Version changed: $previous -> $current"
+            echo "VERSION_CHANGED=true" >> $GITHUB_OUTPUT
+            echo "VERSION=$current" >> $GITHUB_OUTPUT
+          fi
 
-          if ($current -eq $previous) {
-            Write-Host "Version unchanged. Skipping build."
-            echo "VERSION_CHANGED=false" >> $env:GITHUB_OUTPUT
-          } else {
-            Write-Host "Version changed: $previous -> $current"
-            echo "VERSION_CHANGED=true" >> $env:GITHUB_OUTPUT
-            echo "VERSION=$current" >> $env:GITHUB_OUTPUT
-          }
+  build-windows:
+    needs: check-version
+    if: needs.check-version.outputs.version_changed == 'true'
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        if: steps.version.outputs.VERSION_CHANGED == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install uv
-        if: steps.version.outputs.VERSION_CHANGED == 'true'
         run: pip install uv
 
       - name: Install dependencies
-        if: steps.version.outputs.VERSION_CHANGED == 'true'
         run: |
           uv sync --no-dev
           uv pip install nuitka zstandard
 
       - name: Build with Nuitka
-        if: steps.version.outputs.VERSION_CHANGED == 'true'
         run: |
           uv run python -m nuitka `
             --standalone `
@@ -74,31 +79,111 @@ jobs:
             cli.py
 
       - name: Prepare release folder
-        if: steps.version.outputs.VERSION_CHANGED == 'true'
         run: |
-          $version = "${{ steps.version.outputs.VERSION }}"
-
-          # Renomeia cli.dist para "Telegram Downloader"
+          $version = "${{ needs.check-version.outputs.version }}"
           Rename-Item -Path "dist\cli.dist" -NewName "Telegram Downloader"
-
-          # Cria o .env template
           @"
           TG_API_ID=
           TG_API_HASH=
           DOWNLOAD_SIM=3
           "@ | Set-Content "dist\Telegram Downloader\.env"
-
-          # Compacta em .zip
           Compress-Archive `
             -Path "dist\Telegram Downloader" `
-            -DestinationPath "telegram-downloader_v$version.zip"
+            -DestinationPath "telegram-downloader_v$version`_windows.zip"
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: telegram-downloader_v${{ needs.check-version.outputs.version }}_windows.zip
+
+  build-linux:
+    needs: check-version
+    if: needs.check-version.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            patchelf \
+            ccache
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: |
+          uv sync --no-dev
+          uv pip install nuitka zstandard
+
+      - name: Build with Nuitka
+        run: |
+          uv run python -m nuitka \
+            --standalone \
+            --assume-yes-for-downloads \
+            --include-package=telethon \
+            --include-package=asyncio \
+            --include-package=dotenv \
+            --include-package=typer \
+            --include-package=loguru \
+            --include-package=rich \
+            --include-package=qrcode \
+            --include-package=questionary \
+            --output-filename=downloader \
+            --output-dir=dist \
+            --remove-output \
+            cli.py
+
+      - name: Prepare release folder
+        run: |
+          version="${{ needs.check-version.outputs.version }}"
+          mv dist/cli.dist "dist/Telegram Downloader"
+          cat > "dist/Telegram Downloader/.env" <<EOF
+          TG_API_ID=
+          TG_API_HASH=
+          DOWNLOAD_SIM=3
+          EOF
+          cd dist
+          zip -r "../telegram-downloader_v${version}_linux.zip" "Telegram Downloader"
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: telegram-downloader_v${{ needs.check-version.outputs.version }}_linux.zip
+
+  release:
+    needs: [check-version, build-windows, build-linux]
+    if: needs.check-version.outputs.version_changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
 
       - name: Create GitHub Release
-        if: steps.version.outputs.VERSION_CHANGED == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.version.outputs.VERSION }}
-          name: V${{ steps.version.outputs.VERSION }} - Telegram Downloader
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: V${{ needs.check-version.outputs.version }} - Telegram Downloader
           body: |
             Antes de usar, lembre-se de editar o arquivo .env no bloco de notas e preencha de acordo com as instruções.
-          files: telegram-downloader_v${{ steps.version.outputs.VERSION }}.zip
+          files: |
+            telegram-downloader_v${{ needs.check-version.outputs.version }}_windows.zip
+            telegram-downloader_v${{ needs.check-version.outputs.version }}_linux.zip
