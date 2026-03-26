@@ -23,7 +23,7 @@ def load_config() -> dict[str, Any]:
     return {
         "api_id": api_id,
         "api_hash": api_hash,
-        "session_name": "telegram_session",
-        "download_dir": "downloads",
+        "session_name": os.path.join(BASE_DIR, "telegram_session"),
+        "download_dir": os.path.join(BASE_DIR, "downloads"),
         "concurrent_downloads": int(downloads_sim),
     }

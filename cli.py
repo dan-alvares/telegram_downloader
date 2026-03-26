@@ -1,22 +1,38 @@
 import asyncio
+
 import typer
-import download
 import questionary
 from questionary import Style
 
-estilo = Style(
+from config import load_config
+from download import TelegramDownloader
+
+
+def _parse_numeros(valor: str) -> int | list[int] | range | None:
+    if not valor:
+        return None
+    if "-" in valor and valor.count("-") == 1:
+        inicio, fim = valor.split("-")
+        return range(int(inicio), int(fim) + 1)
+    if "," in valor:
+        return [int(n) for n in valor.split(",")]
+    return int(valor)
+
+
+def _parse_links(valor: str) -> str | list[str]:
+    if not valor:
+        return None
+    if "," in valor:
+        return [link.strip() for link in valor.split(",")]
+    return valor.strip()
+
+
+_ESTILO = Style(
     [
-        ("selected", "fg:cyan bold"),  # opção destacada no menu
-        ("pointer", "fg:cyan bold"),  # seta ❯
-        ("highlighted", "fg:cyan bold"),  # texto da opção em foco
+        ("selected", "fg:cyan bold"),
+        ("pointer", "fg:cyan bold"),
+        ("highlighted", "fg:cyan bold"),
     ]
-)
-
-
-app = typer.Typer(help="Download de vídeos do Telegram")
-
-app.add_typer(
-    download.app, name="baixar", help="Baixar todos os vídeos de um canal ou grupo"
 )
 
 _OPCOES = {
@@ -27,28 +43,41 @@ _OPCOES = {
 }
 
 
-async def _menu():
-    escolha = await questionary.select(
-        "O que deseja fazer?",
-        choices=list(_OPCOES.keys()),
-        instruction="(use as setas para navegar)",
-        style=estilo,
-    ).ask_async()
+class Menu:
+    """Menu interativo TUI que despacha para o TelegramDownloader."""
 
-    if escolha is None or _OPCOES[escolha] == "sair":
-        raise typer.Exit()
+    def __init__(self, downloader: TelegramDownloader):
+        self._dl = downloader
 
-    acao = _OPCOES[escolha]
+    async def executar(self) -> None:
+        escolha = await questionary.select(
+            "O que deseja fazer?",
+            choices=list(_OPCOES.keys()),
+            instruction="(use as setas para navegar)",
+            style=_ESTILO,
+        ).ask_async()
 
-    if acao == "tudo":
+        if escolha is None or _OPCOES[escolha] == "sair":
+            raise typer.Exit()
+
+        acao = _OPCOES[escolha]
+
+        if acao == "tudo":
+            await self._cmd_tudo()
+        elif acao == "apenas":
+            await self._cmd_apenas()
+        elif acao == "continuar":
+            await self._dl.continuar_downloads()
+
+    async def _cmd_tudo(self) -> None:
         links = await questionary.text(
             "Informe o(s) link(s) do canal ou grupo (separe por vírgula para múltiplos):"
         ).ask_async()
         if not links:
             raise typer.Exit()
-        await download.baixar_paralelo(download.parse_links(links))
+        await self._dl.baixar_paralelo(_parse_links(links))
 
-    elif acao == "apenas":
+    async def _cmd_apenas(self) -> None:
         link = await questionary.text("Informe o link do canal ou grupo:").ask_async()
         if not link:
             raise typer.Exit()
@@ -62,17 +91,50 @@ async def _menu():
         ).ask_async()
         if not quantidade:
             raise typer.Exit()
-        await download.baixar_limitado(link, numeros=download.parse_numeros(quantidade))
 
-    elif acao == "continuar":
-        await download.continuar_download()
+        await self._dl.baixar_limitado(link, numeros=_parse_numeros(quantidade))
+
+
+config = load_config()
+_downloader = TelegramDownloader(config)
+
+app = typer.Typer(help="Download de vídeos do Telegram")
+
+
+@app.command("tudo")
+def cmd_tudo():
+    """Baixa todos os vídeos de um ou mais canais."""
+    links = typer.prompt(
+        "Informe o(s) link(s) do canal ou grupo (separe por vírgula para múltiplos)"
+    )
+    asyncio.run(_downloader.baixar_paralelo(_parse_links(links)))
+
+
+@app.command("apenas")
+def cmd_apenas():
+    """Baixa uma quantidade ou intervalo específico de vídeos de um canal."""
+    link = typer.prompt("Informe o link do canal ou grupo para baixar os vídeos")
+    quantidade = typer.prompt(
+        "Quantos vídeos deseja baixar?\n"
+        "  • Últimos X           →  ex: 10\n"
+        "  • Intervalo           →  ex: 1-44\n"
+        "  • Específicos         →  ex: 10,7,4,1"
+    )
+    asyncio.run(_downloader.baixar_limitado(link, numeros=_parse_numeros(quantidade)))
+
+
+@app.command("continuar")
+def cmd_continuar():
+    """Retoma downloads pendentes no histórico."""
+    typer.echo("Continuando downloads pendentes...")
+    asyncio.run(_downloader.continuar_downloads())
 
 
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context):
     """Download de vídeos do Telegram."""
     if ctx.invoked_subcommand is None:
-        asyncio.run(_menu())
+        asyncio.run(Menu(_downloader).executar())
 
 
 if __name__ == "__main__":
