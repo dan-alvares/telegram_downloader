@@ -72,6 +72,7 @@ jobs:
             --include-package=loguru `
             --include-package=rich `
             --include-package=qrcode `
+            --include-package=cryptg `
             --include-package=questionary `
             --output-filename=downloader.exe `
             --output-dir=dist `
@@ -140,6 +141,7 @@ jobs:
             --include-package=loguru \
             --include-package=rich \
             --include-package=qrcode \
+            --include-package=cryptg \
             --include-package=questionary \
             --output-filename=downloader \
             --output-dir=dist \

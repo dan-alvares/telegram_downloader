@@ -7,6 +7,7 @@ build:
 		--follow-imports \
 		--jobs=4 \
 		--include-package=telethon \
+		--include-package=pyaesni \
 		--include-package=asyncio \
 		--include-package=dotenv \
 		--include-package=typer \
@@ -19,7 +20,3 @@ build:
 		--remove-output \
 		cli.py
 	mv dist/cli.dist dist/build_atual
-	chmod +x dist/build_atual/downloader
-
-clean:
-	rm -rf dist/

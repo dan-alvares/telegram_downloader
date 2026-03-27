@@ -101,7 +101,6 @@ class MessageFilter:
 
         mime = getattr(message.document, "mime_type", "") or ""
         if mime in TARGET_MIMETYPES:
-            # Vídeos podem ter mime video/* — só é anexo se não tiver atributo de vídeo
             return not cls._has_video_attr(message)
 
         filename = cls._get_filename(message)
@@ -227,6 +226,8 @@ class TelegramDownloader:
         pasta: Path,
         nome_canal: str = "",
         pendentes: set[int] | None = None,
+        # Fila de referências expiradas para retry após o gather
+        expirados: list | None = None,
     ) -> None:
         async with semaphore:
             if pendentes is not None and numero not in pendentes:
@@ -236,7 +237,7 @@ class TelegramDownloader:
             eh_anexo = extensao.lower() in ANEXO_EXTENSIONS
             nome_arquivo = f"{numero}{extensao}"
             filename = pasta / nome_arquivo
-            ctx = f"[{colecao}] - {nome_canal}] [arquivo: {filename.name}]"
+            ctx = f"[{colecao}] [{nome_canal}] [{filename.name}]"
 
             file_entry = self._historico.obter_entrada_arquivo(
                 colecao, nome_historico, message.id, eh_anexo
@@ -244,9 +245,7 @@ class TelegramDownloader:
 
             if file_entry:
                 arquivo_no_disco = pasta / file_entry["arquivo"]
-                ctx_entry = (
-                    f"[{colecao}] - {nome_canal}] [arquivo: {file_entry['arquivo']}]"
-                )
+                ctx_entry = f"[{colecao}] [{nome_canal}] [{file_entry['arquivo']}]"
 
                 if file_entry["status"] and arquivo_no_disco.exists():
                     logger.info(f"{ctx_entry} | Já baixado (histórico), pulando.")
@@ -284,9 +283,10 @@ class TelegramDownloader:
 
             try:
                 logger.info(f"{ctx} | Iniciando download.")
-                media = message.document or message
                 await client.download_media(
-                    media, file=filename, progress_callback=progresso
+                    message.document or message,
+                    file=filename,
+                    progress_callback=progresso,
                 )
                 self._historico.marcar_baixado(
                     colecao, nome_historico, message.id, filename.name, eh_anexo
@@ -313,6 +313,7 @@ class TelegramDownloader:
                     pasta,
                     nome_canal,
                     pendentes,
+                    expirados,
                 )
 
             except Exception as e:
@@ -324,36 +325,19 @@ class TelegramDownloader:
                     )
 
                 if "file reference" in str(e).lower() or "expired" in str(e).lower():
+                    # Garante status=False no histórico para ser retomado pelo continuar_downloads
+                    self._historico.registrar_arquivo(
+                        colecao, nome_historico, message.id, filename.name, eh_anexo
+                    )
                     logger.warning(
-                        f"{ctx} | Referência expirada, recarregando mensagem..."
+                        f"{ctx} | Referência expirada — agendando para retry."
                     )
                     progress.console.log(
-                        f"[yellow]Referência expirada, recarregando: {filename.name}[/]"
+                        f"[yellow]Referência expirada, será retomado: {filename.name}[/]"
                     )
-                    try:
-                        message = await client.get_messages(
-                            message.peer_id, ids=message.id
-                        )
-                        if message:
-                            await self._baixar_arquivo(
-                                message,
-                                numero,
-                                client,
-                                progress,
-                                semaphore,
-                                colecao,
-                                nome_historico,
-                                pasta,
-                                nome_canal,
-                                pendentes,
-                            )
-                    except Exception as retry_err:
-                        logger.error(
-                            f"{ctx} | Falha ao recarregar mensagem: {retry_err}"
-                        )
-                        progress.console.log(
-                            f"[red]Falha ao recarregar {filename.name}: {retry_err}[/]"
-                        )
+                    # Empilha na fila de expirados para retry após o gather
+                    if expirados is not None:
+                        expirados.append((message.id, numero, nome_historico, colecao))
                     return
 
                 logger.error(f"{ctx} | Erro ao baixar: {e}")
@@ -372,6 +356,7 @@ class TelegramDownloader:
         nome_arquivo: str,
         pasta: Path,
         pendentes: set[int] | None = None,
+        expirados: list | None = None,
     ) -> list:
         return [
             asyncio.create_task(
@@ -386,10 +371,33 @@ class TelegramDownloader:
                     pasta,
                     nome_canal=nome_arquivo,
                     pendentes=pendentes,
+                    expirados=expirados,
                 )
             )
             for message, numero in messages_enum
         ]
+
+    async def _retry_expirados(
+        self,
+        expirados: list,
+        client: TelegramClient,
+        colecao: str,
+        nome_historico: str,
+        pasta: Path,
+    ) -> None:
+        """
+        Recarrega mensagens com referência expirada diretamente do servidor
+        e chama continuar_downloads para retomá-las via histórico.
+        """
+        if not expirados:
+            return
+
+        typer.echo(
+            f"\n{len(expirados)} arquivo(s) com referência expirada. Retomando via histórico..."
+        )
+        # Marca o curso como incompleto para garantir que continuar_downloads o processe
+        self._historico.marcar_incompleto(colecao, nome_historico)
+        await self.continuar_downloads(client=client)
 
     async def baixar_limitado(
         self,
@@ -438,6 +446,7 @@ class TelegramDownloader:
                 f"Vídeos: {total_videos} | Anexos: {total_anexos} | Baixando: {total_baixar}."
             )
 
+            expirados: list = []
             semaphore = asyncio.Semaphore(self._config["concurrent_downloads"])
             with Progress(*_PROGRESS_COLUMNS) as progress:
                 tasks = self._criar_tasks(
@@ -449,8 +458,14 @@ class TelegramDownloader:
                     nome_arquivo,
                     pasta,
                     pendentes,
+                    expirados,
                 )
                 await asyncio.gather(*tasks)
+
+            if expirados:
+                await self._retry_expirados(
+                    expirados, client, colecao, nome_arquivo, pasta
+                )
 
             print("Downloads concluídos.")
 
@@ -463,9 +478,13 @@ class TelegramDownloader:
         self,
         target: str | list[str],
         colecao_forcada: str | None = None,
+        client: TelegramClient | None = None,
     ) -> None:
         """Baixa todos os vídeos de um ou mais canais, sequencialmente por canal."""
-        client = await self._conectar()
+        _client_externo = client is not None
+        if client is None:
+            client = await self._conectar()
+
         try:
             links = [target] if isinstance(target, str) else list(target)
             await client.get_dialogs()
@@ -533,6 +552,7 @@ class TelegramDownloader:
                     f" ({entrada['total_videos']} vídeo(s), {entrada['total_anexos']} anexo(s))\n"
                 )
 
+                expirados: list = []
                 semaphore = asyncio.Semaphore(self._config["concurrent_downloads"])
                 with Progress(*_PROGRESS_COLUMNS) as progress:
                     tasks = self._criar_tasks(
@@ -543,21 +563,49 @@ class TelegramDownloader:
                         colecao,
                         nome_arquivo,
                         pasta,
+                        expirados=expirados,
                     )
                     await asyncio.gather(*tasks)
 
-        finally:
-            await client.disconnect()
+                if expirados:
+                    await self._retry_expirados(
+                        expirados, client, colecao, nome_arquivo, pasta
+                    )
 
-    async def continuar_downloads(self) -> None:
+                typer.echo(
+                    f'"{nome_arquivo}" concluído.'
+                    + (" Próximo na fila..." if fila else " Fila finalizada.")
+                )
+
+        finally:
+            if not _client_externo:
+                await client.disconnect()
+
+    async def continuar_downloads(
+        self,
+        client: TelegramClient | None = None,
+    ) -> None:
         """Retoma todos os downloads marcados como incompletos no histórico."""
         pendentes = self._historico.pendentes()
         if not pendentes:
             typer.echo("Nenhum download pendente encontrado no seu histórico.\n")
             return
-        for colecao, nome, info in pendentes:
-            typer.echo(f'Continuando download de "{nome}" ({colecao})...')
-            await self.baixar_paralelo(info["canal"], colecao_forcada=colecao)
+
+        _client_externo = client is not None
+        if client is None:
+            client = await self._conectar()
+
+        try:
+            for colecao, nome, info in pendentes:
+                typer.echo(f'Continuando download de "{nome}" ({colecao})...')
+                await self.baixar_paralelo(
+                    info["canal"],
+                    colecao_forcada=colecao,
+                    client=client,
+                )
+        finally:
+            if not _client_externo:
+                await client.disconnect()
 
 
 class ColecaoSelector:
