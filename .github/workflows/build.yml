@@ -56,9 +56,7 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: |
-          uv sync --no-dev
-          uv pip install nuitka zstandard
+        run: uv sync --group build
 
       - name: Build with Nuitka
         run: |
@@ -66,13 +64,11 @@ jobs:
             --standalone `
             --assume-yes-for-downloads `
             --include-package=telethon `
-            --include-package=asyncio `
             --include-package=dotenv `
             --include-package=typer `
             --include-package=loguru `
             --include-package=rich `
             --include-package=qrcode `
-            --include-package=cryptg `
             --include-package=questionary `
             --output-filename=downloader.exe `
             --output-dir=dist `
@@ -125,9 +121,7 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: |
-          uv sync --no-dev
-          uv pip install nuitka zstandard
+        run: uv sync --group build
 
       - name: Build with Nuitka
         run: |
@@ -135,13 +129,11 @@ jobs:
             --standalone \
             --assume-yes-for-downloads \
             --include-package=telethon \
-            --include-package=asyncio \
             --include-package=dotenv \
             --include-package=typer \
             --include-package=loguru \
             --include-package=rich \
             --include-package=qrcode \
-            --include-package=cryptg \
             --include-package=questionary \
             --output-filename=downloader \
             --output-dir=dist \
