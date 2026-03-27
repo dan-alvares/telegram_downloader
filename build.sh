@@ -6,6 +6,7 @@ uv run python -m nuitka \
   --follow-imports \
   --jobs=4 \
   --include-package=telethon \
+  --include-package=pyaesni \
   --include-package=asyncio \
   --include-package=dotenv \
   --include-package=typer \
