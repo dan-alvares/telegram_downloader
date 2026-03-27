@@ -2,7 +2,7 @@
 
 # Como baixar o Telegram Downloader?
 Acesse a [página de releases](https://github.com/dan-alvares/telegram_downloader/releases) e faça download da última versão disponível.
-Para builds para Linux, basta rodar o **build.sh** ou **make build**.
+Para builds para Linux, basta clonar este repo, instalar as dependências, por exemplo `uv sync --no-dev --group build` e depois rodar o **build.sh** ou **make build**.
 
 # Instruções de uso
 
