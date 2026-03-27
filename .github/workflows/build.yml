@@ -56,23 +56,25 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync --group build
+        run: |
+          uv sync --no-dev --group build
 
       - name: Build with Nuitka
         run: |
-          uv run python -m nuitka `
-            --standalone `
-            --assume-yes-for-downloads `
-            --include-package=telethon `
-            --include-package=dotenv `
-            --include-package=typer `
-            --include-package=loguru `
-            --include-package=rich `
-            --include-package=qrcode `
-            --include-package=questionary `
-            --output-filename=downloader.exe `
-            --output-dir=dist `
-            --remove-output `
+          uv run python -m nuitka \
+            --standalone \
+            --assume-yes-for-downloads \
+            --include-package=telethon \
+            --include-package=pyaesnip \
+            --include-package=dotenv \
+            --include-package=typer \
+            --include-package=loguru \
+            --include-package=rich \
+            --include-package=qrcode \
+            --include-package=questionary \
+            --output-filename=downloader.exe \
+            --output-dir=dist \
+            --remove-output \
             cli.py
 
       - name: Prepare release folder
@@ -84,9 +86,9 @@ jobs:
           TG_API_HASH=
           DOWNLOAD_SIM=3
           "@ | Set-Content "dist\Telegram Downloader\.env"
-          Compress-Archive `
-            -Path "dist\Telegram Downloader" `
-            -DestinationPath "telegram-downloader_v$version`_windows.zip"
+          Compress-Archive \
+            -Path "dist\Telegram Downloader" \
+            -DestinationPath "telegram-downloader_v$version\_windows.zip"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -121,7 +123,8 @@ jobs:
         run: pip install uv
 
       - name: Install dependencies
-        run: uv sync --group build
+        run: |
+          uv sync --no-dev --group build
 
       - name: Build with Nuitka
         run: |
@@ -129,6 +132,7 @@ jobs:
             --standalone \
             --assume-yes-for-downloads \
             --include-package=telethon \
+            --include-package=pyaesni \
             --include-package=dotenv \
             --include-package=typer \
             --include-package=loguru \
