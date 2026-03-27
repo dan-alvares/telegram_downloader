@@ -88,9 +88,10 @@ jobs:
           TG_API_HASH=
           DOWNLOAD_SIM=3
           "@ | Set-Content "dist\Telegram Downloader\.env"
+          $zipName = "telegram-downloader_v${version}_windows.zip"
           Compress-Archive `
             -Path "dist\Telegram Downloader" `
-            -DestinationPath "telegram-downloader_v$version\_windows.zip"
+            -DestinationPath $zipName
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -116,6 +117,7 @@ jobs:
             patchelf \
             ccache \
             nasm
+          sudo apt-get remove -y yasm
 
       - name: Set up Python
         uses: actions/setup-python@v5
